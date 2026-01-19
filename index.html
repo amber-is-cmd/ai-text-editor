@@ -1,1 +1,1179 @@
-<!DOCTYPE html><html><head><title>AI Text Editor</title><script src="https://cdn.tailwindcss.com"></script><script src="https://unpkg.com/react@18/umd/react.production.min.js"></script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script><script src="https://unpkg.com/@babel/standalone/babel.min.js"></script></head><body><div id="root"></div><script type="text/babel">const{useState,useRef,useEffect}=React;function App(){const[img,setImg]=useState(null);const[sel,setSel]=useState(null);const[txt,setTxt]=useState("");const[style,setStyle]=useState({font:"Arial",size:24,color:"#000",bg:"#fff",rot:0,skew:0});const[step,setStep]=useState("upload");const[overlay,setOverlay]=useState(null);const[confirm,setConfirm]=useState(false);const canvasRef=useRef(null);const fileRef=useRef(null);const imgRef=useRef(null);const handleFile=(e)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=(ev)=>{const i=new Image();i.onload=()=>{imgRef.current=i;setImg(ev.target.result);setStep("select");setTimeout(()=>drawCanvas(),100);};i.src=ev.target.result;};r.readAsDataURL(f);};const drawCanvas=()=>{const c=canvasRef.current;const i=imgRef.current;if(!c||!i)return;c.width=i.naturalWidth;c.height=i.naturalHeight;const ctx=c.getContext("2d");ctx.drawImage(i,0,0);if(overlay){ctx.save();ctx.translate(overlay.x+overlay.w/2,overlay.y+overlay.h/2);ctx.rotate(style.rot*Math.PI/180);ctx.transform(1,0,Math.tan(style.skew*Math.PI/180),1,0,0);ctx.translate(-overlay.w/2,-overlay.h/2);ctx.fillStyle=style.bg;ctx.fillRect(0,0,overlay.w,overlay.h);ctx.fillStyle=style.color;ctx.font=style.size+"px "+style.font;ctx.textBaseline="middle";ctx.fillText(overlay.text,6,overlay.h/2);ctx.restore();}if(sel&&!confirm){ctx.strokeStyle="#3b82f6";ctx.lineWidth=3;ctx.setLineDash([8,4]);ctx.strokeRect(sel.x,sel.y,sel.w,sel.h);ctx.fillStyle="rgba(59,130,246,0.2)";ctx.fillRect(sel.x,sel.y,sel.w,sel.h);}if(confirm&&sel){ctx.strokeStyle="#ef4444";ctx.lineWidth=3;ctx.strokeRect(sel.x-4,sel.y-4,sel.w+8,sel.h+8);ctx.fillStyle="rgba(239,68,68,0.2)";ctx.fillRect(sel.x-4,sel.y-4,sel.w+8,sel.h+8);}};useEffect(()=>{if(img)drawCanvas();},[img,sel,overlay,confirm,style]);const[drag,setDrag]=useState(false);const[start,setStart]=useState(null);const onDown=(e)=>{if(step!=="select"||confirm)return;const r=canvasRef.current.getBoundingClientRect();const x=(e.clientX-r.left)*canvasRef.current.width/r.width;const y=(e.clientY-r.top)*canvasRef.current.height/r.height;setDrag(true);setStart({x,y});setSel(null);};const onMove=(e)=>{if(!drag||!start)return;const r=canvasRef.current.getBoundingClientRect();const x=(e.clientX-r.left)*canvasRef.current.width/r.width;const y=(e.clientY-r.top)*canvasRef.current.height/r.height;setSel({x:Math.min(start.x,x),y:Math.min(start.y,y),w:Math.abs(x-start.x),h:Math.abs(y-start.y)});};const onUp=()=>{setDrag(false);if(sel&&sel.w>20&&sel.h>20)setStep("edit");};const generate=()=>{if(!txt||!sel)return;setConfirm(true);};const apply=()=>{setOverlay({x:sel.x,y:sel.y,w:sel.w,h:sel.h,text:txt});setConfirm(false);setSel(null);setTxt("");setStep("select");};const download=()=>{const l=document.createElement("a");l.download="edited.png";l.href=canvasRef.current.toDataURL();l.click();};return(<div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6"><div className="max-w-6xl mx-auto"><h1 className="text-4xl font-bold text-white text-center mb-2">AI Text Editor</h1><p className="text-slate-400 text-center mb-6">Upload image, select area, replace text</p><div className="flex justify-center mb-6"><div className="flex items-center gap-4">{["Upload","Select","Edit","Confirm"].map((s,i)=>{const curr=confirm?3:["upload","select","edit"].indexOf(step);return(<div key={s} className="flex items-center gap-2"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${curr>=i?"bg-blue-500 text-white":"bg-slate-700 text-slate-500"}`}>{i+1}</div><span className={`text-sm ${curr>=i?"text-blue-400":"text-slate-500"}`}>{s}</span>{i<3&&<div className={`w-8 h-0.5 ${curr>i?"bg-blue-500":"bg-slate-700"}`}/>}</div>);})}</div></div><div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-2"><div className="bg-slate-800 rounded-2xl p-6 relative"><input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden"/>{!img?(<div onClick={()=>fileRef.current?.click()} className="h-96 border-2 border-dashed border-slate-600 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-500"><svg className="w-16 h-16 text-slate-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span className="text-slate-400">Click to upload image</span></div>):(<canvas ref={canvasRef} className="w-full h-auto cursor-crosshair rounded-lg" style={{maxHeight:"60vh"}} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}/>)}{confirm&&(<div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-2xl"><div className="bg-slate-800 rounded-xl p-6 max-w-md border border-slate-600"><h3 className="text-white text-lg font-semibold mb-2">Confirm Replacement</h3><p className="text-slate-400 text-sm mb-4">Text: {txt}</p><div className="flex gap-3"><button onClick={()=>setConfirm(false)} className="flex-1 py-2 bg-slate-700 text-white rounded-lg">Cancel</button><button onClick={apply} className="flex-1 py-2 bg-red-600 text-white rounded-lg">Confirm</button></div></div></div>)}</div>{img&&overlay&&(<button onClick={download} className="mt-3 px-4 py-2 bg-green-600 text-white rounded-lg">Download</button>)}</div><div className="space-y-4"><div className="bg-slate-800 rounded-xl p-4"><h3 className="text-white font-semibold mb-3">Replacement Text</h3><textarea value={txt} onChange={(e)=>setTxt(e.target.value)} placeholder="Enter new text..." disabled={step==="upload"||confirm} className="w-full h-24 bg-slate-700 text-white rounded-lg p-3 resize-none disabled:opacity-50"/></div><div className="bg-slate-800 rounded-xl p-4"><h3 className="text-white font-semibold mb-3">Style</h3><div className="space-y-3"><select value={style.font} onChange={(e)=>setStyle({...style,font:e.target.value})} className="w-full bg-slate-700 text-white rounded-lg p-2">{["Arial","Helvetica","Times New Roman","Georgia","Verdana"].map(f=>(<option key={f} value={f}>{f}</option>))}</select><div className="grid grid-cols-2 gap-3"><input type="number" value={style.size} onChange={(e)=>setStyle({...style,size:+e.target.value})} className="bg-slate-700 text-white rounded-lg p-2"/><div className="flex gap-2"><input type="color" value={style.color} onChange={(e)=>setStyle({...style,color:e.target.value})} className="w-10 h-10 rounded"/><input type="color" value={style.bg} onChange={(e)=>setStyle({...style,bg:e.target.value})} className="w-10 h-10 rounded"/></div></div><div><label className="text-slate-400 text-xs">Rotation: {style.rot}°</label><input type="range" min="-45" max="45" value={style.rot} onChange={(e)=>setStyle({...style,rot:+e.target.value})} className="w-full"/></div><div><label className="text-slate-400 text-xs">Skew: {style.skew}°</label><input type="range" min="-20" max="20" value={style.skew} onChange={(e)=>setStyle({...style,skew:+e.target.value})} className="w-full"/></div></div></div>{step==="edit"&&!confirm&&(<button onClick={generate} disabled={!txt||!sel} className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold disabled:opacity-50">Preview</button>)}</div></div></div></div>);}ReactDOM.createRoot(document.getElementById("root")).render(<App/>);</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>AI Text Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+          body { margin: 0; }
+          .animate-spin { animation: spin 1s linear infinite; }
+          @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        </style>
+  </head>
+  <body>
+      <div id="root"></div>div>
+      <script type="text/babel">
+            const { useState, useRef, useEffect } = React;
+
+            function TextEditorPrototype() {
+                    const [imageSrc, setImageSrc] = useState(null);
+                    const [selectionMode, setSelectionMode] = useState('rectangle');
+                    const [rectangleSelection, setRectangleSelection] = useState(null);
+                    const [polygonPoints, setPolygonPoints] = useState([]);
+                    const [isPolygonClosed, setIsPolygonClosed] = useState(false);
+                    const [isSelecting, setIsSelecting] = useState(false);
+                    const [startPos, setStartPos] = useState(null);
+                    const [replacementText, setReplacementText] = useState('');
+                    const [isGenerating, setIsGenerating] = useState(false);
+                    const [isAnalyzing, setIsAnalyzing] = useState(false);
+                    const [generatedOverlay, setGeneratedOverlay] = useState(null);
+                    const [showConfirmation, setShowConfirmation] = useState(false);
+                    const [pendingOverlay, setPendingOverlay] = useState(null);
+                    const [tightBounds, setTightBounds] = useState(null);
+                    const [styleSettings, setStyleSettings] = useState({
+                              fontFamily: 'Arial',
+                              fontSize: 24,
+                              fontWeight: 'normal',
+                              color: '#000000',
+                              backgroundColor: '#ffffff',
+                              letterSpacing: 0,
+                              rotation: 0,
+                              skew: 0,
+                    });
+                    const [detectedStyle, setDetectedStyle] = useState(null);
+                    const [documentContext, setDocumentContext] = useState(null);
+                    const [fontSuggestions, setFontSuggestions] = useState([]);
+                    const [step, setStep] = useState('upload');
+                    const [history, setHistory] = useState([]);
+                    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+                    const [isDragging, setIsDragging] = useState(false);
+
+                    const canvasRef = useRef(null);
+                    const fileInputRef = useRef(null);
+                    const imageObjRef = useRef(null);
+                    const dragStartTime = useRef(0);
+                    const dragStartPos = useRef(null);
+
+                    const handleFileChange = (event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+                              const reader = new FileReader();
+                              reader.onload = (e) => { const dataUrl = e.target?.result; if (typeof dataUrl === 'string') loadImage(dataUrl); };
+                              reader.readAsDataURL(file);
+                    };
+
+                    const loadImage = (src) => {
+                              const img = new Image();
+                              img.onload = () => {
+                                          imageObjRef.current = img; setImageSrc(src); resetSelection(); setHistory([]); setStep('select');
+                                          requestAnimationFrame(() => { drawCanvas(); analyzeDocumentContext(); });
+                              };
+                              img.src = src;
+                    };
+
+                    const analyzeDocumentContext = () => {
+                              const canvas = canvasRef.current; const img = imageObjRef.current;
+                              if (!canvas || !img) return;
+                              const ctx = canvas.getContext('2d');
+                              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                              setDocumentContext({
+                                          dominantColors: extractDominantColors(imageData),
+                                          textDensity: estimateTextDensity(imageData),
+                                          documentType: classifyDocument(imageData, canvas.width, canvas.height),
+                                          estimatedDPI: estimateDPI(canvas.width, canvas.height),
+                              });
+                    };
+
+                    const extractDominantColors = (imageData) => {
+                              const data = imageData.data; const colorMap = {};
+                              for (let i = 0; i < data.length; i += 40) {
+                                          const r = Math.round(data[i] / 32) * 32, g = Math.round(data[i + 1] / 32) * 32, b = Math.round(data[i + 2] / 32) * 32;
+                                          const key = r + ',' + g + ',' + b; colorMap[key] = (colorMap[key] || 0) + 1;
+                              }
+                              return Object.entries(colorMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([color]) => {
+                                          const [r, g, b] = color.split(',').map(Number); return { r, g, b };
+                              });
+                    };
+
+                    const estimateTextDensity = (imageData) => {
+                              const data = imageData.data; let darkPixels = 0; const total = data.length / 4;
+                              for (let i = 0; i < data.length; i += 4) {
+                                          if (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 128) darkPixels++;
+                              }
+                              return darkPixels / total;
+                    };
+
+                    const classifyDocument = (imageData, width, height) => {
+                              const aspectRatio = width / height; const density = estimateTextDensity(imageData);
+                              if (aspectRatio > 1.3 && aspectRatio < 1.5) return 'letter';
+                              if (aspectRatio > 0.65 && aspectRatio < 0.8) return 'portrait';
+                              if (density < 0.1) return 'sparse'; if (density > 0.3) return 'dense';
+                              return 'standard';
+                    };
+
+                    const estimateDPI = (width, height) => {
+                              const possibleDPI = Math.round(width / 8.5);
+                              if (possibleDPI >= 70 && possibleDPI <= 100) return 72;
+                              if (possibleDPI >= 140 && possibleDPI <= 160) return 150;
+                              if (possibleDPI >= 280 && possibleDPI <= 320) return 300;
+                              return possibleDPI;
+                    };
+
+                    const resetSelection = () => {
+                              setRectangleSelection(null); setPolygonPoints([]); setIsPolygonClosed(false);
+                              setGeneratedOverlay(null); setDetectedStyle(null); setFontSuggestions([]);
+                              setTightBounds(null); setShowConfirmation(false); setPendingOverlay(null);
+                   };
+
+                    const drawCanvas = () => {
+                              const canvas = canvasRef.current;
+                              const img = imageObjRef.current;
+                              if (!canvas || !img) return;
+                              const ctx = canvas.getContext('2d');
+                              canvas.width = img.naturalWidth;
+                              canvas.height = img.naturalHeight;
+                              ctx.clearRect(0, 0, canvas.width, canvas.height);
+                              ctx.drawImage(img, 0, 0);
+                              history.forEach(overlay => drawTextOverlay(ctx, overlay));
+                              if (generatedOverlay) drawTextOverlay(ctx, generatedOverlay);
+                              if (showConfirmation && tightBounds) drawTightBoundsHighlight(ctx, tightBounds);
+                              if (rectangleSelection && selectionMode === 'rectangle' && !showConfirmation) {
+                                          drawRectangleSelection(ctx, rectangleSelection);
+                              }
+                              if (polygonPoints.length > 0 && !showConfirmation) drawPolygonSelection(ctx);
+                    };
+
+                    const drawTightBoundsHighlight = (ctx, bounds) => {
+                              ctx.save();
+                              const { x, y, width, height, rotation, skew } = bounds;
+                              const centerX = x + width / 2;
+                              const centerY = y + height / 2;
+                              ctx.translate(centerX, centerY);
+                              ctx.rotate((rotation || 0) * Math.PI / 180);
+                              if (skew) ctx.transform(1, 0, Math.tan(skew * Math.PI / 180), 1, 0, 0);
+                              ctx.translate(-width / 2, -height / 2);
+                              ctx.strokeStyle = '#ef4444';
+                              ctx.lineWidth = 4;
+                              ctx.setLineDash([]);
+                              ctx.strokeRect(-6, -6, width + 12, height + 12);
+                              ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+                              ctx.fillRect(-6, -6, width + 12, height + 12);
+                              const markerSize = 10;
+                              ctx.fillStyle = '#ef4444';
+                              [[-6, -6], [width + 6 - markerSize, -6], [-6, height + 6 - markerSize], [width + 6 - markerSize, height + 6 - markerSize]]
+                                          .forEach(([mx, my]) => ctx.fillRect(mx, my, markerSize, markerSize));
+                              ctx.restore();
+                    };
+
+                    const drawRectangleSelection = (ctx, sel) => {
+                              ctx.save();
+                              ctx.strokeStyle = '#3b82f6';
+                              ctx.lineWidth = 3;
+                              ctx.setLineDash([8, 4]);
+                              ctx.strokeRect(sel.x, sel.y, sel.width, sel.height);
+                              ctx.setLineDash([]);
+                              ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                              ctx.fillRect(sel.x, sel.y, sel.width, sel.height);
+                              const handleSize = 12;
+                              ctx.fillStyle = '#3b82f6';
+                              [[sel.x, sel.y], [sel.x + sel.width, sel.y], [sel.x, sel.y + sel.height], [sel.x + sel.width, sel.y + sel.height]]
+                                          .forEach(([cx, cy]) => ctx.fillRect(cx - handleSize/2, cy - handleSize/2, handleSize, handleSize));
+                              ctx.restore();
+                    };
+
+                    const drawPolygonSelection = (ctx) => {
+                              ctx.save();
+                              if (isPolygonClosed && polygonPoints.length >= 3) {
+                                          ctx.beginPath();
+                                          ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+                                          polygonPoints.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                                          ctx.closePath();
+                                          ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                                          ctx.fill();
+                              }
+                              ctx.strokeStyle = '#3b82f6';
+                              ctx.lineWidth = 2;
+                              ctx.setLineDash([]);
+                              if (polygonPoints.length > 1) {
+                                          ctx.beginPath();
+                                          ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+                                          polygonPoints.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                                          if (isPolygonClosed) ctx.closePath();
+                                          ctx.stroke();
+                              }
+                              if (!isPolygonClosed && polygonPoints.length > 0 && step === 'select') {
+                                          ctx.setLineDash([4, 4]);
+                                          ctx.beginPath();
+                                          ctx.moveTo(polygonPoints[polygonPoints.length - 1].x, polygonPoints[polygonPoints.length - 1].y);
+                                          ctx.lineTo(mousePos.x, mousePos.y);
+                                          ctx.stroke();
+                              }
+                              polygonPoints.forEach((point, idx) => {
+                                          ctx.beginPath();
+                                          const isFirstPoint = idx === 0;
+                                          const radius = isFirstPoint ? 10 : 7;
+                                          ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+                                          ctx.fillStyle = isFirstPoint ? '#22c55e' : '#3b82f6';
+                                          ctx.fill();
+                                          ctx.strokeStyle = '#fff';
+                                          ctx.lineWidth = 2;
+                                          ctx.setLineDash([]);
+                                          ctx.stroke();
+                                          ctx.fillStyle = '#fff';
+                                          ctx.font = 'bold 10px Arial';
+                                          ctx.textAlign = 'center';
+                                          ctx.textBaseline = 'middle';
+                                          ctx.fillText(String(idx + 1), point.x, point.y);
+                              });
+                              ctx.restore();
+                    };
+
+                    useEffect(() => {
+                              if (imageSrc) drawCanvas();
+                    }, [imageSrc, rectangleSelection, polygonPoints, isPolygonClosed, generatedOverlay, history, mousePos, showConfirmation, tightBounds]);
+
+                    const drawTextOverlay = (ctx, overlay) => {
+                              const { x, y, width, height, text, style, polygon } = overlay;
+                              ctx.save();
+                              if (polygon && polygon.length >= 3) {
+                                          const bounds = getPolygonBounds(polygon);
+                                          const centerX = bounds.x + bounds.width / 2;
+                                          const centerY = bounds.y + bounds.height / 2;
+                                          ctx.translate(centerX, centerY);
+                                          ctx.rotate((style.rotation || 0) * Math.PI / 180);
+                                          if (style.skew) ctx.transform(1, 0, Math.tan(style.skew * Math.PI / 180), 1, 0, 0);
+                                          ctx.translate(-bounds.width / 2, -bounds.height / 2);
+                                          ctx.beginPath();
+                                          const offsetPolygon = polygon.map(p => ({ x: p.x - bounds.x, y: p.y - bounds.y }));
+                                          ctx.moveTo(offsetPolygon[0].x, offsetPolygon[0].y);
+                                          offsetPolygon.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                                          ctx.closePath();
+                                          ctx.clip();
+                                          ctx.fillStyle = style.backgroundColor;
+                                          ctx.fillRect(0, 0, bounds.width, bounds.height);
+                                          drawTextInBounds(ctx, text, style, bounds.width, bounds.height);
+                              } else {
+                                          const centerX = x + width / 2;
+                                          const centerY = y + height / 2;
+                                          ctx.translate(centerX, centerY);
+                                          ctx.rotate((style.rotation || 0) * Math.PI / 180);
+                                          if (style.skew) ctx.transform(1, 0, Math.tan(style.skew * Math.PI / 180), 1, 0, 0);
+                                          ctx.translate(-width / 2, -height / 2);
+                                          ctx.fillStyle = style.backgroundColor;
+                                          ctx.fillRect(0, 0, width, height);
+                                          drawTextInBounds(ctx, text, style, width, height);
+                              }
+                              ctx.restore();
+                    };
+
+                    const drawTextInBounds = (ctx, text, style, width, height) => {
+                              ctx.fillStyle = style.color;
+                              ctx.font = style.fontWeight + ' ' + style.fontSize + 'px ' + style.fontFamily;
+                              ctx.textBaseline = 'middle';
+                              const words = text.split(' ');
+                              const lineHeight = style.fontSize * 1.2;
+                              let line = '';
+                              let currentY = lineHeight / 2 + 4;
+                              const padding = 4;
+                              words.forEach((word, i) => {
+                                          const testLine = line + word + ' ';
+                                          const metrics = ctx.measureText(testLine);
+                                          if (metrics.width > width - padding * 2 && i > 0) {
+                                                        ctx.fillText(line.trim(), padding, currentY);
+                                                        line = word + ' ';
+                                                        currentY += lineHeight;
+                                          } else {
+                                                        line = testLine;
+                                          }
+                              });
+                              ctx.fillText(line.trim(), padding, currentY);
+                    };
+
+                    const getPolygonBounds = (points) => {
+                              const xs = points.map(p => p.x);
+                              const ys = points.map(p => p.y);
+                              const minX = Math.min(...xs);
+                              const maxX = Math.max(...xs);
+                              const minY = Math.min(...ys);
+                              const maxY = Math.max(...ys);
+                              return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+                    };
+
+                    const getCanvasCoords = (e) => {
+                              const canvas = canvasRef.current;
+                              if (!canvas) return { x: 0, y: 0 };
+                              const rect = canvas.getBoundingClientRect();
+                              const scaleX = canvas.width / rect.width;
+                              const scaleY = canvas.height / rect.height;
+                              return {
+                                          x: (e.clientX - rect.left) * scaleX,
+                                          y: (e.clientY - rect.top) * scaleY,
+                              };
+                    };
+
+                    const isNearFirstPoint = (pos) => {
+                              if (polygonPoints.length < 3) return false;
+                              const first = polygonPoints[0];
+                              const dist = Math.sqrt(Math.pow(pos.x - first.x, 2) + Math.pow(pos.y - first.y, 2));
+                              return dist < 20;
+                    };
+
+                    const handleMouseDown = (e) => {
+                              if (step !== 'select' || !imageSrc || showConfirmation) return;
+                              const pos = getCanvasCoords(e);
+                              dragStartTime.current = Date.now();
+                              dragStartPos.current = pos;
+                              setIsDragging(true);
+                              if (selectionMode === 'rectangle') {
+                                          setIsSelecting(true);
+                                          setStartPos(pos);
+                                          setRectangleSelection(null);
+                                          setPolygonPoints([]);
+                                          setIsPolygonClosed(false);
+                              }
+                    };
+
+                    const handleMouseMove = (e) => {
+                              const pos = getCanvasCoords(e);
+                              setMousePos(pos);
+                              if (!isDragging || !dragStartPos.current) return;
+                              const dist = Math.sqrt(
+                                          Math.pow(pos.x - dragStartPos.current.x, 2) +
+                                          Math.pow(pos.y - dragStartPos.current.y, 2)
+                                        );
+                              if (dist > 5 && selectionMode === 'rectangle' && isSelecting) {
+                                          setRectangleSelection({
+                                                        x: Math.min(startPos.x, pos.x),
+                                                        y: Math.min(startPos.y, pos.y),
+                                                        width: Math.abs(pos.x - startPos.x),
+                                                        height: Math.abs(pos.y - startPos.y),
+                                          });
+                              }
+                    };
+
+                    const handleMouseUp = async (e) => {
+                              const pos = getCanvasCoords(e);
+                              const timeDiff = Date.now() - dragStartTime.current;
+                              const dist = dragStartPos.current ? Math.sqrt(
+                                          Math.pow(pos.x - dragStartPos.current.x, 2) +
+                                          Math.pow(pos.y - dragStartPos.current.y, 2)
+                                        ) : 0;
+                              setIsDragging(false);
+                              const isClick = timeDiff < 300 && dist < 10;
+                              if (isClick && step === 'select') {
+                                          if (isPolygonClosed) {
+                                                        setPolygonPoints([pos]);
+                                                        setIsPolygonClosed(false);
+                                                        setRectangleSelection(null);
+                                                        setSelectionMode('polygon');
+                                          } else if (isNearFirstPoint(pos) && polygonPoints.length >= 3) {
+                                                        setIsPolygonClosed(true);
+                                                        setStep('edit');
+                                                        await analyzeSelection();
+                                          } else {
+                                                        setPolygonPoints(prev => [...prev, pos]);
+                                                        setRectangleSelection(null);
+                                                        setSelectionMode('polygon');
+                                          }
+                              } else if (!isClick && selectionMode === 'rectangle') {
+                                          setIsSelecting(false);
+                                          setStartPos(null);
+                                          if (rectangleSelection && rectangleSelection.width > 20 && rectangleSelection.height > 20) {
+                                                        setPolygonPoints([]);
+                                                        setIsPolygonClosed(false);
+                                                        setStep('edit');
+                                                        await analyzeSelection();
+                                          }
+                              }
+                    };
+
+                    const analyzeSelection = async () => {
+                              setIsAnalyzing(true);
+                              const canvas = canvasRef.current;
+                              const ctx = canvas.getContext('2d');
+                              let bounds;
+                              let selectionMask = null;
+                              if (isPolygonClosed && polygonPoints.length >= 3) {
+                                          bounds = getPolygonBounds(polygonPoints);
+                                          selectionMask = createPolygonMask(polygonPoints, bounds);
+                              } else if (rectangleSelection) {
+                                          bounds = rectangleSelection;
+                              } else {
+                                          setIsAnalyzing(false);
+                                          return;
+                              }
+                              try {
+                                          const imageData = ctx.getImageData(
+                                                        Math.max(0, Math.floor(bounds.x)),
+                                                        Math.max(0, Math.floor(bounds.y)),
+                                                        Math.min(Math.floor(bounds.width), canvas.width - Math.floor(bounds.x)),
+                                                        Math.min(Math.floor(bounds.height), canvas.height - Math.floor(bounds.y))
+                                                      );
+                                          const analysis = await performAdvancedAnalysis(imageData, bounds, selectionMask);
+                                          const tight = calculateTightTextBounds(imageData, bounds, analysis.style.rotation, analysis.style.skew);
+                                          setTightBounds(tight);
+                                          setDetectedStyle(analysis.style);
+                                          setStyleSettings(prev => ({ ...prev, ...analysis.style }));
+                                          setFontSuggestions(analysis.fontSuggestions);
+                              } catch (err) {
+                                          console.error('Analysis error:', err);
+                              }
+                              setIsAnalyzing(false);
+                    };
+
+                    const calculateTightTextBounds = (imageData, originalBounds, rotation, skew) => {
+                              const data = imageData.data;
+                              const width = imageData.width;
+                              const height = imageData.height;
+                              let minX = width, maxX = 0, minY = height, maxY = 0;
+                              let foundText = false;
+                              const edgeColors = [];
+                              for (let x = 0; x < width; x++) {
+                                          edgeColors.push(getLuminance(data, x, 0, width));
+                                          edgeColors.push(getLuminance(data, x, height - 1, width));
+                              }
+                              for (let y = 0; y < height; y++) {
+                                          edgeColors.push(getLuminance(data, 0, y, width));
+                                          edgeColors.push(getLuminance(data, width - 1, y, width));
+                              }
+                              edgeColors.sort((a, b) => a - b);
+                              const bgLuminance = edgeColors[Math.floor(edgeColors.length / 2)];
+                              const threshold = Math.abs(bgLuminance - 128) < 64 ? 50 : 30;
+                              for (let y = 0; y < height; y++) {
+                                          for (let x = 0; x < width; x++) {
+                                                        const lum = getLuminance(data, x, y, width);
+                                                        if (Math.abs(lum - bgLuminance) > threshold) {
+                                                                        foundText = true;
+                                                                        minX = Math.min(minX, x);
+                                                                        maxX = Math.max(maxX, x);
+                                                                        minY = Math.min(minY, y);
+                                                                        maxY = Math.max(maxY, y);
+                                                        }
+                                          }
+                              }
+                              if (!foundText) {
+                                          return { x: originalBounds.x, y: originalBounds.y, width: originalBounds.width, height: originalBounds.height, rotation: rotation || 0, skew: skew || 0 };
+                              }
+                              const padding = 4;
+                              minX = Math.max(0, minX - padding);
+                              minY = Math.max(0, minY - padding);
+                              maxX = Math.min(width, maxX + padding);
+                              maxY = Math.min(height, maxY + padding);
+                              return { x: originalBounds.x + minX, y: originalBounds.y + minY, width: maxX - minX, height: maxY - minY, rotation: rotation || 0, skew: skew || 0 };
+                    };
+
+                    const getLuminance = (data, x, y, width) => {
+                              const idx = (y * width + x) * 4;
+                              return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                    };
+
+                    const createPolygonMask = (points, bounds) => {
+                              const width = Math.floor(bounds.width);
+                              const height = Math.floor(bounds.height);
+                              const mask = new Array(width * height).fill(false);
+                              const localPoints = points.map(p => ({ x: p.x - bounds.x, y: p.y - bounds.y }));
+                              for (let y = 0; y < height; y++) {
+                                          for (let x = 0; x < width; x++) {
+                                                        if (isPointInPolygon(x, y, localPoints)) mask[y * width + x] = true;
+                                          }
+                              }
+                              return mask;
+                    };
+
+                    const isPointInPolygon = (x, y, polygon) => {
+                              let inside = false;
+                              for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                                          const xi = polygon[i].x, yi = polygon[i].y;
+                                          const xj = polygon[j].x, yj = polygon[j].y;
+                                          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+                              }
+                              return inside;
+                    };
+
+        const performAdvancedAnalysis = async (imageData, bounds, mask) => {
+                  const data = imageData.data;
+                  const width = imageData.width;
+                  const height = imageData.height;
+                  const colorAnalysis = analyzeColorsImproved(data, width, height, mask);
+                  const textCharacteristics = analyzeTextCharacteristicsImproved(data, width, height, mask, colorAnalysis);
+                  const fontSuggestions = await suggestFonts(textCharacteristics, documentContext);
+                  return {
+                              style: {
+                                            color: colorAnalysis.textColor,
+                                            backgroundColor: colorAnalysis.bgColor,
+                                            fontSize: textCharacteristics.estimatedSize,
+                                            fontWeight: textCharacteristics.isBold ? 'bold' : 'normal',
+                                            fontFamily: fontSuggestions[0]?.name || 'Arial',
+                                            rotation: 0,
+                                            skew: 0,
+                                            letterSpacing: 0,
+                              },
+                              fontSuggestions,
+                              textCharacteristics,
+                  };
+        };
+
+                    const analyzeColorsImproved = (data, width, height, mask) => {
+                              const edgePixels = [];
+                              const edgeMargin = Math.max(2, Math.floor(Math.min(width, height) * 0.05));
+                              for (let x = 0; x < width; x++) {
+                                          for (let y = 0; y < edgeMargin; y++) {
+                                                        const idx = (y * width + x) * 4;
+                                                        if (!mask || mask[y * width + x]) {
+                                                                        edgePixels.push({ r: data[idx], g: data[idx + 1], b: data[idx + 2] });
+                                                        }
+                                          }
+                                          for (let y = height - edgeMargin; y < height; y++) {
+                                                        const idx = (y * width + x) * 4;
+                                                        if (!mask || mask[y * width + x]) {
+                                                                        edgePixels.push({ r: data[idx], g: data[idx + 1], b: data[idx + 2] });
+                                                        }
+                                          }
+                              }
+                              for (let y = edgeMargin; y < height - edgeMargin; y++) {
+                                          for (let x = 0; x < edgeMargin; x++) {
+                                                        const idx = (y * width + x) * 4;
+                                                        if (!mask || mask[y * width + x]) {
+                                                                        edgePixels.push({ r: data[idx], g: data[idx + 1], b: data[idx + 2] });
+                                                        }
+                                          }
+                                          for (let x = width - edgeMargin; x < width; x++) {
+                                                        const idx = (y * width + x) * 4;
+                                                        if (!mask || mask[y * width + x]) {
+                                                                        edgePixels.push({ r: data[idx], g: data[idx + 1], b: data[idx + 2] });
+                                                        }
+                                          }
+                              }
+                              const bgColor = findDominantColor(edgePixels);
+                              const bgLum = 0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b;
+                              const centerPixels = [];
+                              const centerMargin = Math.floor(Math.min(width, height) * 0.2);
+                              for (let y = centerMargin; y < height - centerMargin; y++) {
+                                          for (let x = centerMargin; x < width - centerMargin; x++) {
+                                                        const idx = (y * width + x) * 4;
+                                                        if (!mask || mask[y * width + x]) {
+                                                                        const pixel = { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+                                                                        const lum = 0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b;
+                                                                        if (Math.abs(lum - bgLum) > 30) {
+                                                                                          centerPixels.push(pixel);
+                                                                        }
+                                                        }
+                                          }
+                              }
+                              let textColor;
+                              if (centerPixels.length > 10) {
+                                          textColor = findDominantColor(centerPixels);
+                              } else {
+                                          textColor = bgLum > 128 ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+                              }
+                              const toHex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+                              return { textColor: toHex(textColor), bgColor: toHex(bgColor) };
+                    };
+
+                    const findDominantColor = (pixels) => {
+                              if (pixels.length === 0) return { r: 255, g: 255, b: 255 };
+                              const k = Math.min(3, pixels.length);
+                              let centroids = pixels.slice(0, k).map(p => ({ ...p }));
+                              for (let iter = 0; iter < 10; iter++) {
+                                          const clusters = Array(k).fill(null).map(() => []);
+                                          pixels.forEach(p => {
+                                                        let minDist = Infinity;
+                                                        let closest = 0;
+                                                        centroids.forEach((c, i) => {
+                                                                        const dist = Math.pow(p.r - c.r, 2) + Math.pow(p.g - c.g, 2) + Math.pow(p.b - c.b, 2);
+                                                                        if (dist < minDist) { minDist = dist; closest = i; }
+                                                        });
+                                                        clusters[closest].push(p);
+                                          });
+                                          centroids = clusters.map((cluster, i) => {
+                                                        if (cluster.length === 0) return centroids[i];
+                                                        return {
+                                                                        r: cluster.reduce((s, p) => s + p.r, 0) / cluster.length,
+                                                                        g: cluster.reduce((s, p) => s + p.g, 0) / cluster.length,
+                                                                        b: cluster.reduce((s, p) => s + p.b, 0) / cluster.length,
+                                                        };
+                                          });
+                              }
+                              const clusters = Array(k).fill(null).map(() => []);
+                              pixels.forEach(p => {
+                                          let minDist = Infinity;
+                                          let closest = 0;
+                                          centroids.forEach((c, i) => {
+                                                        const dist = Math.pow(p.r - c.r, 2) + Math.pow(p.g - c.g, 2) + Math.pow(p.b - c.b, 2);
+                                                        if (dist < minDist) { minDist = dist; closest = i; }
+                                          });
+                                          clusters[closest].push(p);
+                              });
+                              let maxSize = 0;
+                              let dominantIdx = 0;
+                              clusters.forEach((c, i) => { if (c.length > maxSize) { maxSize = c.length; dominantIdx = i; } });
+                              return centroids[dominantIdx];
+                    };
+
+                    const analyzeTextCharacteristicsImproved = (data, width, height, mask, colorAnalysis) => {
+                              const bgHex = colorAnalysis.bgColor;
+                              const bgR = parseInt(bgHex.slice(1, 3), 16);
+                              const bgG = parseInt(bgHex.slice(3, 5), 16);
+                              const bgB = parseInt(bgHex.slice(5, 7), 16);
+                              const bgLum = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
+                              const rowHasText = [];
+                              for (let y = 0; y < height; y++) {
+                                          let hasText = false;
+                                          for (let x = 0; x < width; x++) {
+                                                        if (mask && !mask[y * width + x]) continue;
+                                                        const idx = (y * width + x) * 4;
+                                                        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                                                        if (Math.abs(lum - bgLum) > 30) { hasText = true; break; }
+                                          }
+                                          rowHasText.push(hasText);
+                              }
+                              let maxConsecutive = 0;
+                              let current = 0;
+                              let textRowCounts = [];
+                              for (let y = 0; y < height; y++) {
+                                          if (rowHasText[y]) { current++; }
+                                          else { if (current > 3) { textRowCounts.push(current); } maxConsecutive = Math.max(maxConsecutive, current); current = 0; }
+                              }
+                              if (current > 3) textRowCounts.push(current);
+                              maxConsecutive = Math.max(maxConsecutive, current);
+                              let estimatedSize;
+                              if (textRowCounts.length > 0) {
+                                          textRowCounts.sort((a, b) => a - b);
+                                          estimatedSize = textRowCounts[Math.floor(textRowCounts.length / 2)];
+                              } else { estimatedSize = Math.round(height * 0.7); }
+                              estimatedSize = Math.max(10, Math.min(100, estimatedSize));
+                              let strokeWidths = [];
+                              for (let y = 0; y < height; y++) {
+                                          let inStroke = false;
+                                          let strokeStart = 0;
+                                          for (let x = 0; x < width; x++) {
+                                                        if (mask && !mask[y * width + x]) continue;
+                                                        const idx = (y * width + x) * 4;
+                                                        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                                                        const isText 
+
+                                                  const findDominantColor = (pixels) => {
+                                                            if (pixels.length === 0) return { r: 255, g: 255, b: 255 };
+          const k = Math.min(3, pixels.length);
+                                                            let centroids = pixels.slice(0, k).map(p => ({ ...p }));
+                                                            for (let iter = 0; iter < 10; iter++) {
+                                                                        const clusters = Array(k).fill(null).map(() => []);
+                                                                        pixels.forEach(p => {
+                                                                                      let minDist = Infinity;
+                                                                                      let closest = 0;
+                                                                                      centroids.forEach((c, i) => {
+                                                                                                      const dist = Math.pow(p.r - c.r, 2) + Math.pow(p.g - c.g, 2) + Math.pow(p.b - c.b, 2);
+                                                                                                      if (dist < minDist) { minDist = dist; closest = i; }
+                                                                                        });
+                                                                                      clusters[closest].push(p);
+                                                                        });
+                                                                        centroids = clusters.map((cluster, i) => {
+                                                                                      if (cluster.length === 0) return centroids[i];
+                                                                                      return {
+                                                                                                      r: cluster.reduce((s, p) => s + p.r, 0) / cluster.length,
+                                                                                                      g: cluster.reduce((s, p) => s + p.g, 0) / cluster.length,
+                                                                                                      b: cluster.reduce((s, p) => s + p.b, 0) / cluster.length,
+                                                                                      };
+                                                                        });
+                                                            }
+                                                            const clusters = Array(k).fill(null).map(() => []);
+                                                            pixels.forEach(p => {
+                                                                        let minDist = Infinity;
+                                                                        let closest = 0;
+                                                                        centroids.forEach((c, i) => {
+                                                                                      const dist = Math.pow(p.r - c.r, 2) + Math.pow(p.g - c.g, 2) + Math.pow(p.b - c.b, 2);
+                                                                                      if (dist < minDist) { minDist = dist; closest = i; }
+                                                                        });
+                                                                        clusters[closest].push(p);
+                                                            });
+                                                            let maxSize = 0;
+                                                            let dominantIdx = 0;
+                                                            clusters.forEach((c, i) => { if (c.length > maxSize) { maxSize = c.length; dominantIdx = i; } });
+                                                            return centroids[dominantIdx];
+                                                  };
+
+                                                  const analyzeTextCharacteristicsImproved = (data, width, height, mask, colorAnalysis) => {
+                                                            const bgHex = colorAnalysis.bgColor;
+                                                            const bgR = parseInt(bgHex.slice(1, 3), 16);
+                                                            const bgG = parseInt(bgHex.slice(3, 5), 16);
+                                                            const bgB = parseInt(bgHex.slice(5, 7), 16);
+                                                            const bgLum = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
+                                                            const rowHasText = [];
+                                                            for (let y = 0; y < height; y++) {
+                                                                        let hasText = false;
+                                                                        for (let x = 0; x < width; x++) {
+                                                                                      if (mask && !mask[y * width + x]) continue;
+                                                                                      const idx = (y * width + x) * 4;
+                                                                                      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                                                                                      if (Math.abs(lum - bgLum) > 30) { hasText = true; break; }
+                                                                        }
+                                                                        rowHasText.push(hasText);
+                                                            }
+                                                            let maxConsecutive = 0;
+                                                            let current = 0;
+                                                            let textRowCounts = [];
+                                                            for (let y = 0; y < height; y++) {
+                                                                        if (rowHasText[y]) { current++; }
+                                                                        else { if (current > 3) { textRowCounts.push(current); } maxConsecutive = Math.max(maxConsecutive, current); current = 0; }
+                                                            }
+                                                            if (current > 3) textRowCounts.push(current);
+                                                            maxConsecutive = Math.max(maxConsecutive, current);
+                                                            let estimatedSize;
+                                                            if (textRowCounts.length > 0) {
+                                                                        textRowCounts.sort((a, b) => a - b);
+                                                                        estimatedSize = textRowCounts[Math.floor(textRowCounts.length / 2)];
+                                                            } else { estimatedSize = Math.round(height * 0.7); }
+                                                            estimatedSize = Math.max(10, Math.min(100, estimatedSize));
+                                                            let strokeWidths = [];
+                                                            for (let y = 0; y < height; y++) {
+                                                                        let inStroke = false;
+                                                                        let strokeStart = 0;
+                                                                        for (let x = 0; x < width; x++) {
+                                                                                      if (mask && !mask[y * width + x]) continue;
+                                                                                      const idx = (y * width + x) * 4;
+                                                                                      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                                                                                      const isText = Math.abs(lum - bgLum) > 30;
+                                                                                      if (isText && !inStroke) { inStroke = true; strokeStart = x; }
+                                                                                      else if (!isText && inStroke) { inStroke = false; const sw = x - strokeStart; if (sw > 1 && sw < estimatedSize * 0.5) strokeWidths.push(sw); }
+                                                                        }
+                                                            }
+                                                            const avgStrokeWidth = strokeWidths.length > 0 ? strokeWidths.reduce((a, b) => a + b, 0) / strokeWidths.length : 2;
+                                                            const isBold = avgStrokeWidth > estimatedSize * 0.12;
+                                                            const hasSerif = detectSerifs(data, width, height, bgLum);
+                                                            return { estimatedSize, isBold, avgStrokeWidth, letterSpacing: 0, hasSerif, isItalic: false };
+                                                  };
+
+                                                  const detectSerifs = (data, width, height, bgLum) => {
+                                                            let horizontalEdges = 0, verticalEdges = 0;
+                                                            for (let y = 1; y < height - 1; y++) {
+                                                                        for (let x = 1; x < width - 1; x++) {
+                                                                                      const idx = (y * width + x) * 4;
+                                                                                      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                                                                                      if (Math.abs(lum - bgLum) < 30) continue;
+                                                                                      const top = 0.299 * data[((y - 1) * width + x) * 4] + 0.587 * data[((y - 1) * width + x) * 4 + 1] + 0.114 * data[((y - 1) * width + x) * 4 + 2];
+                                                                                      const bottom = 0.299 * data[((y + 1) * width + x) * 4] + 0.587 * data[((y + 1) * width + x) * 4 + 1] + 0.114 * data[((y + 1) * width + x) * 4 + 2];
+                                                                                      const left = 0.299 * data[(y * width + x - 1) * 4] + 0.587 * data[(y * width + x - 1) * 4 + 1] + 0.114 * data[(y * width + x - 1) * 4 + 2];
+                                                                                      const right = 0.299 * data[(y * width + x + 1) * 4] + 0.587 * data[(y * width + x + 1) * 4 + 1] + 0.114 * data[(y * width + x + 1) * 4 + 2];
+                                                                                      if (Math.abs(top - bottom) > 30) verticalEdges++;
+                                                                                      if (Math.abs(left - right) > 30) horizontalEdges++;
+                                                                        }
+                                                            }
+                                                            return horizontalEdges > verticalEdges * 0.9;
+                                                  };
+
+                                                  const suggestFonts = async (characteristics, docContext) => {
+                                                            const suggestions = [];
+                                                            if (characteristics.hasSerif) {
+                                                                        suggestions.push(
+                                                                          { name: 'Times New Roman', confidence: 0.85, type: 'serif' },
+                                                                          { name: 'Georgia', confidence: 0.75, type: 'serif' },
+                                                                          { name: 'Garamond', confidence: 0.65, type: 'serif' },
+                                                                                    );
+                                                            } else {
+                                                                        suggestions.push(
+                                                                          { name: 'Arial', confidence: 0.85, type: 'sans-serif' },
+                                                                          { name: 'Helvetica', confidence: 0.80, type: 'sans-serif' },
+                                                                          { name: 'Verdana', confidence: 0.65, type: 'sans-serif' },
+                                                                                    );
+                                                            }
+                                                            suggestions.sort((a, b) => b.confidence - a.confidence);
+                                                            return suggestions.slice(0, 5);
+                                                  };
+
+              const generateText = async () => {
+                        if (!replacementText) return;
+                        setIsGenerating(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        const overlay = { text: replacementText, style: { ...styleSettings } };
+                        if (isPolygonClosed && polygonPoints.length >= 3) {
+                                    const bounds = getPolygonBounds(polygonPoints);
+                                    overlay.x = bounds.x; overlay.y = bounds.y;
+                                    overlay.width = bounds.width; overlay.height = bounds.height;
+                                    overlay.polygon = [...polygonPoints];
+                        } else if (rectangleSelection) {
+                                    overlay.x = rectangleSelection.x; overlay.y = rectangleSelection.y;
+                                    overlay.width = rectangleSelection.width; overlay.height = rectangleSelection.height;
+                        }
+                        setPendingOverlay(overlay);
+                        setShowConfirmation(true);
+                        setIsGenerating(false);
+              };
+
+                                                  const confirmAndApply = () => {
+                                                            if (pendingOverlay) {
+                                                                        setGeneratedOverlay(pendingOverlay);
+                                                                        setShowConfirmation(false);
+                                                                        setPendingOverlay(null);
+                                                                        setStep('preview');
+                                                            }
+                                                  };
+
+                                                  const cancelConfirmation = () => {
+                                                            setShowConfirmation(false);
+                                                            setPendingOverlay(null);
+                                                  };
+
+                                                  const applyChanges = () => {
+                                                            if (generatedOverlay) {
+                                                                        setHistory(prev => [...prev, generatedOverlay]);
+                                                                        setGeneratedOverlay(null);
+                                                                        resetSelection();
+                                                                        setReplacementText('');
+                                                                        setStep('select');
+                                                            }
+                                                  };
+
+                                                  const cancelChanges = () => {
+                                                            setGeneratedOverlay(null);
+                                                            setStep('edit');
+                                                  };
+
+                                                  const handleResetSelection = () => {
+                                                            resetSelection();
+                                                            setReplacementText('');
+                                                            setStep('select');
+                                                            setSelectionMode('rectangle');
+                                                  };
+
+                                                  const downloadImage = () => {
+                                                            const canvas = canvasRef.current;
+                                                            if (!canvas) return;
+                                                            const link = document.createElement('a');
+                                                            link.download = 'edited-image.png';
+                                                            link.href = canvas.toDataURL('image/png');
+                                                            link.click();
+                                                  };
+
+                                                  const undoLast = () => setHistory(prev => prev.slice(0, -1));
+                                                  const triggerFileInput = () => fileInputRef.current?.click();
+
+                                                  const hasSelection = (isPolygonClosed && polygonPoints.length >= 3) ||
+                                                                               (rectangleSelection && rectangleSelection.width > 20 && rectangleSelection.height > 20);
+
+                                                  return (
+                                                            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 md:p-6">
+                                                                        <div className="max-w-7xl mx-auto">
+                                                                                      <div className="text-center mb-6">
+                                                                                                      <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">AI Text Editor</h1>
+                                                                                                      <p className="text-slate-400 text-sm md:text-base">
+                                                                                                                        Drag to select rectangle, or click to create custom polygon shapes
+                                                                                                        </p>
+                                                                                        </div>
+
+                                                                                      <div className="flex justify-center mb-6">
+                                                                                                      <div className="flex items-center space-x-2 md:space-x-4">
+                                                                                                        {['Upload', 'Select', 'Edit', 'Confirm', 'Preview'].map((label, i) => {
+                                                                                const stepNames = ['upload', 'select', 'edit', 'confirm', 'preview'];
+                                                                                const currentStepIdx = showConfirmation ? 3 : stepNames.indexOf(step);
+                                                                                const isActive = currentStepIdx >= i;
+                                                                                const isCurrent = currentStepIdx === i;
+                                                                                return (
+                                                                                                      <React.Fragment key={label}>
+                                                                                                                              <div className={'flex items-center space-x-1 md:space-x-2 ' + (isActive ? 'text-blue-400' : 'text-slate-500')}>
+                                                                                                                                                        <div className={'w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center text-xs font-medium ' +
+                                                                                                                                                                                    (isCurrent ? 'bg-blue-500 text-white' : isActive ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-500')}>
+                                                                                                                                                          {i + 1}
+                                                                                                                                                          </div>
+                                                                                                                                                        <span className="text-xs font-medium hidden sm:inline">{label}</span>
+                                                                                                                                </div>
+                                                                                                        {i < 4 && <div className={'w-4 md:w-8 h-0.5 ' + (isActive && currentStepIdx > i ? 'bg-blue-500' : 'bg-slate-700')} />}
+                                                                                                        </React.Fragment>
+                                                                                                    );
+                                                            })}
+                                                                                                        </div>
+                                                                                        </div>
+
+                                                                                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+                                                                                                      <div className="lg:col-span-2">
+                                                                                                                        <div className="bg-slate-800 rounded-2xl p-4 md:p-6 shadow-xl">
+                                                                                                                                            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                                                                                                                          
+                                                                                                                          {!imageSrc ? (
+                                                                                  <div onClick={triggerFileInput} className="flex flex-col items-center justify-center h-72 md:h-96 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-slate-700/50 transition-all">
+                                                                                                          <svg className="w-12 h-12 md:w-16 md:h-16 text-slate-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                                                                            </svg>
+                                                                                                          <span className="text-base md:text-lg font-medium text-slate-400 mb-2">Click to upload an image</span>
+                                                                                                          <span className="text-xs md:text-sm text-slate-500">PNG, JPG, GIF supported</span>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                  <div className="relative">
+                                                                                                          <canvas
+                                                                                                                                    ref={canvasRef}
+                                                                                                                                    className={'w-full h-auto rounded-lg border border-slate-700 ' + (showConfirmation ? 'cursor-not-allowed' : 'cursor-crosshair')}
+                                                                                                                                    style={{ maxHeight: '65vh' }}
+                                                                                                                                    onMouseDown={handleMouseDown}
+                                                                                                                                    onMouseMove={handleMouseMove}
+                                                                                                                                    onMouseUp={handleMouseUp}
+                                                                                                                                    onMouseLeave={() => { if (isDragging) handleMouseUp({ clientX: 0, clientY: 0 }); }}
+                                                                                                                                  />
+
+                                                                                    {step === 'select' && !showConfirmation && (
+                                                                                                            <div className="absolute top-3 left-3 bg-black/80 text-white px-3 py-2 rounded-lg text-xs space-y-1">
+                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                                                                                                                                                      <span>Drag to select rectangle</span>
+                                                                                                                                          </div>
+                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                                                                                                                                      <span>Click to place polygon points</span>
+                                                                                                                                          </div>
+                                                                                                              {polygonPoints.length > 0 && !isPolygonClosed && (
+                                                                                                                                          <div className="text-yellow-400 text-xs mt-1">
+                                                                                                                                            {polygonPoints.length >= 3 ? 'Click near first point to close' : 'Place ' + (3 - polygonPoints.length) + ' more point(s)'}
+                                                                                                                                            </div>
+                                                                                                                                        )}
+                                                                                                              </div>
+                                                                                                          )}
+
+                                                                                    {(isGenerating || isAnalyzing) && (
+                                                                                                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
+                                                                                                                                        <div className="bg-slate-800 rounded-xl p-5 flex flex-col items-center">
+                                                                                                                                                                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+                                                                                                                                                                      <span className="text-white font-medium text-sm">{isAnalyzing ? 'Analyzing text style...' : 'Preparing preview...'}</span>
+                                                                                                                                          </div>
+                                                                                                              </div>
+                                                                                                          )}
+                                                                                    </div>
+                                                                                )}
+                                                                                                                          </div>
+                                                                                                        
+                                                                                                        {imageSrc && !showConfirmation && (
+                                                                                <div className="flex flex-wrap gap-2 md:gap-3 mt-3">
+                                                                                                      <button onClick={triggerFileInput} className="px-3 py-2 bg-slate-700 text-white text-sm rounded-lg hover:bg-slate-600 transition-colors">Upload New</button>
+                                                                                  {polygonPoints.length > 0 && !isPolygonClosed && (
+                                                                                                        <button onClick={() => { setPolygonPoints([]); setSelectionMode('rectangle'); }} className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-500 transition-colors">Clear Points</button>
+                                                                                                      )}
+                                                                                  {history.length > 0 && (
+                                                                                                        <>
+                                                                                                                                  <button onClick={undoLast} className="px-3 py-2 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-500 transition-colors">Undo</button>
+                                                                                                                                  <button onClick={downloadImage} className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-500 transition-colors">Download</button>
+                                                                                                          </>
+                                                                                                      )}
+                                                                                  </div>
+                                                                              )}
+                                                                                                        
+                                                                                                        {documentContext && !showConfirmation && (
+                                                                                <div className="mt-4 bg-slate-800/50 rounded-xl p-3">
+                                                                                                      <h4 className="text-xs font-medium text-slate-400 mb-2">Document Analysis</h4>
+                                                                                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                                                                                              <div><span className="text-slate-500">Type:</span><span className="text-white ml-1 capitalize">{documentContext.documentType}</span></div>
+                                                                                                                              <div><span className="text-slate-500">DPI:</span><span className="text-white ml-1">~{documentContext.estimatedDPI}</span></div>
+                                                                                                                              <div><span className="text-slate-500">Text Density:</span><span className="text-white ml-1">{Math.round(documentContext.textDensity * 100)}%</span></div>
+                                                                                                        </div>
+                                                                                  </div>
+                                                                              )}
+                                                                                                        </div>
+
+                                                                                                      <div className="space-y-4">
+                                                                                                        {showConfirmation && (
+                                                                                <div className="bg-gradient-to-r from-red-900/50 to-orange-900/50 rounded-xl p-4 border border-red-500/50">
+                                                                                                      <div className="flex items-center gap-3 mb-3">
+                                                                                                                              <div className="w-8 h-8 bg-red-500/20 rounded-full flex items-center justify-center">
+                                                                                                                                                        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                                                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                                                                                                                          </svg>
+                                                                                                                                </div>
+                                                                                                                              <div>
+                                                                                                                                                        <h3 className="text-white font-semibold">Confirm Replacement</h3>
+                                                                                                                                                        <p className="text-red-300 text-xs">Red highlight shows area to replace</p>
+                                                                                                                                </div>
+                                                                                                        </div>
+                                                                                                      <div className="bg-slate-900/50 rounded-lg p-3 mb-3">
+                                                                                                                              <div className="text-xs text-slate-400 mb-1">New text:</div>
+                                                                                                                              <div className="text-white text-sm font-medium">{pendingOverlay?.text}</div>
+                                                                                                        </div>
+                                                                                                      <div className="flex gap-2">
+                                                                                                                              <button onClick={cancelConfirmation} className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors text-sm">Cancel</button>
+                                                                                                                              <button onClick={confirmAndApply} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors text-sm font-medium">Confirm</button>
+                                                                                                        </div>
+                                                                                  </div>
+                                                                              )}
+                                                                                                        
+                                                                                                        {fontSuggestions.length > 0 && !showConfirmation && (
+                                                                                <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-xl p-4 border border-purple-500/30">
+                                                                                                      <h3 className="text-sm font-semibold text-purple-400 mb-3">Suggested Fonts</h3>
+                                                                                                      <div className="space-y-2">
+                                                                                                        {fontSuggestions.map((font) => (
+                                                                                                          <button key={font.name} onClick={() => setStyleSettings(prev => ({ ...prev, fontFamily: font.name }))}
+                                                                                                                                      className={'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ' + (styleSettings.fontFamily === font.name ? 'bg-purple-600 text-white' : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700')}>
+                                                                                                                                      <div className="flex justify-between items-center">
+                                                                                                                                                                    <span style={{ fontFamily: font.name }}>{font.name}</span>
+                                                                                                                                                                    <span className="text-xs opacity-70">{Math.round(font.confidence * 100)}%</span>
+                                                                                                                                        </div>
+                                                                                                            </button>
+                                                                                                        ))}
+                                                                                                        </div>
+                                                                                  </div>
+                                                                              )}
+                                                                                                        
+                                                                                                        {detectedStyle && !showConfirmation && (
+                                                                                <div className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 rounded-xl p-4 border border-blue-500/30">
+                                                                                                      <h3 className="text-sm font-semibold text-blue-400 mb-3">Auto-Detected Style</h3>
+                                                                                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                                                                              <div className="flex items-center gap-2">
+                                                                                                                                                        <span className="text-slate-400">Text:</span>
+                                                                                                                                                        <span className="w-4 h-4 rounded border border-slate-600" style={{ backgroundColor: detectedStyle.color }}></span>
+                                                                                                                                                        <span className="text-white">{detectedStyle.color}</span>
+                                                                                                                                </div>
+                                                                                                                              <div className="flex items-center gap-2">
+                                                                                                                                                        <span className="text-slate-400">BG:</span>
+                                                                                                                                                        <span className="w-4 h-4 rounded border border-slate-600" style={{ backgroundColor: detectedStyle.backgroundColor }}></span>
+                                                                                                                                                        <span className="text-white">{detectedStyle.backgroundColor}</span>
+                                                                                                                                </div>
+                                                                                                                              <div><span className="text-slate-400">Size:</span><span className="text-white ml-1">{detectedStyle.fontSize}px</span></div>
+                                                                                                                              <div><span className="text-slate-400">Weight:</span><span className="text-white ml-1 capitalize">{detectedStyle.fontWeight}</span></div>
+                                                                                                        </div>
+                                                                                                      <p className="text-xs text-slate-500 mt-2">Adjust rotation/skew manually if text is angled</p>
+                                                                                  </div>
+                                                                              )}
+                                                                                                        
+                                                                                                                        <div className="bg-slate-800 rounded-xl p-4 shadow-xl">
+                                                                                                                                            <h3 className="text-base font-semibold text-white mb-3">Replacement Text</h3>
+                                                                                                                                            <textarea value={replacementText} onChange={(e) => setReplacementText(e.target.value)} placeholder="Enter the new text..."
+                                                                                                                                                                  disabled={step === 'upload' || step === 'preview' || showConfirmation}
+                                                                                                                                                                  className="w-full h-20 bg-slate-700 text-white rounded-lg p-3 text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
+                                                                                                                          </div>
+                                                                                                        
+                                                                                                                        <div className="bg-slate-800 rounded-xl p-4 shadow-xl">
+                                                                                                                                            <h3 className="text-base font-semibold text-white mb-3">Style Settings</h3>
+                                                                                                                                            <div className="space-y-3">
+                                                                                                                                                                  <div>
+                                                                                                                                                                                          <label className="text-xs text-slate-400 mb-1 block">Font Family</label>
+                                                                                                                                                                                          <select value={styleSettings.fontFamily} onChange={(e) => setStyleSettings(prev => ({ ...prev, fontFamily: e.target.value }))}
+                                                                                                                                                                                                                    disabled={showConfirmation} className="w-full bg-slate-700 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50">
+                                                                                                                                                                                                                    {['Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New', 'Calibri', 'Garamond', 'Impact', 'Comic Sans MS'].map(f => (
+                                                                                                                                                                                                                                                <option key={f} value={f}>{f}</option>
+                                                                                                                                                                                                                                              ))}
+                                                                                                                                                                                                                  </select>
+                                                                                                                                                                    </div>
+                                                                                                                                                                  <div className="grid grid-cols-2 gap-3">
+                                                                                                                                                                                          <div>
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Size (px)</label>
+                                                                                                                                                                                                                    <input type="number" value={styleSettings.fontSize} onChange={(e) => setStyleSettings(prev => ({ ...prev, fontSize: parseInt(e.target.value) || 16 }))}
+                                                                                                                                                                                                                                                disabled={showConfirmation} className="w-full bg-slate-700 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                          <div>
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Weight</label>
+                                                                                                                                                                                                                    <select value={styleSettings.fontWeight} onChange={(e) => setStyleSettings(prev => ({ ...prev, fontWeight: e.target.value }))}
+                                                                                                                                                                                                                                                disabled={showConfirmation} className="w-full bg-slate-700 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50">
+                                                                                                                                                                                                                                                <option value="normal">Normal</option>
+                                                                                                                                                                                                                                                <option value="bold">Bold</option>
+                                                                                                                                                                                                                                              </select>
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                    </div>
+                                                                                                                                                                  <div className="grid grid-cols-2 gap-3">
+                                                                                                                                                                                          <div>
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Text Color</label>
+                                                                                                                                                                                                                    <div className="flex items-center gap-2">
+                                                                                                                                                                                                                                                <input type="color" value={styleSettings.color} onChange={(e) => setStyleSettings(prev => ({ ...prev, color: e.target.value }))}
+                                                                                                                                                                                                                                                                              disabled={showConfirmation} className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent disabled:opacity-50" />
+                                                                                                                                                                                                                                                <input type="text" value={styleSettings.color} onChange={(e) => setStyleSettings(prev => ({ ...prev, color: e.target.value }))}
+                                                                                                                                                                                                                                                                              disabled={showConfirmation} className="flex-1 bg-slate-700 text-white text-xs rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
+                                                                                                                                                                                                                                              </div>
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                          <div>
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Background</label>
+                                                                                                                                                                                                                    <div className="flex items-center gap-2">
+                                                                                                                                                                                                                                                <input type="color" value={styleSettings.backgroundColor} onChange={(e) => setStyleSettings(prev => ({ ...prev, backgroundColor: e.target.value }))}
+                                                                                                                                                                                                                                                                              disabled={showConfirmation} className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent disabled:opacity-50" />
+                                                                                                                                                                                                                                                <input type="text" value={styleSettings.backgroundColor} onChange={(e) => setStyleSettings(prev => ({ ...prev, backgroundColor: e.target.value }))}
+                                                                                                                                                                                                                                                                              disabled={showConfirmation} className="flex-1 bg-slate-700 text-white text-xs rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
+                                                                                                                                                                                                                                              </div>
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                    </div>
+                                                                                                                                                                  <div>
+                                                                                                                                                                                          <div className="flex justify-between items-center mb-1">
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400">Rotation: {styleSettings.rotation}°</label>
+                                                                                                                                                                                                                    <button onClick={() => setStyleSettings(prev => ({ ...prev, rotation: 0 }))} className="text-xs text-blue-400 hover:text-blue-300">Reset</button>
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                          <input type="range" min="-45" max="45" step="0.5" value={styleSettings.rotation}
+                                                                                                                                                                                                                    onChange={(e) => setStyleSettings(prev => ({ ...prev, rotation: parseFloat(e.target.value) }))}
+                                                                                                                                                                                                                    disabled={showConfirmation} className="w-full accent-blue-500 disabled:opacity-50" />
+                                                                                                                                                                    </div>
+                                                                                                                                                                  <div>
+                                                                                                                                                                                          <div className="flex justify-between items-center mb-1">
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400">Skew: {styleSettings.skew}°</label>
+                                                                                                                                                                                                                    <button onClick={() => setStyleSettings(prev => ({ ...prev, skew: 0 }))} className="text-xs text-blue-400 hover:text-blue-300">Reset</button>
+                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                          <input type="range" min="-20" max="20" step="0.5" value={styleSettings.skew}
+                                                                                                                                                                                                                    onChange={(e) => setStyleSettings(prev => ({ ...prev, skew: parseFloat(e.target.value) }))}
+                                                                                                                                                                                                                    disabled={showConfirmation} className="w-full accent-blue-500 disabled:opacity-50" />
+                                                                                                                                                                    </div>
+                                                                                                                                              </div>
+                                                                                                                          </div>
+                                                                                                        
+                                                                                                        {!showConfirmation && (
+                                                                                <div className="space-y-2">
+                                                                                  {step === 'edit' && (
+                                                                                                        <>
+                                                                                                                                  <button onClick={generateText} disabled={!replacementText || isGenerating || !hasSelection}
+                                                                                                                                                              className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                                                                                                                                    {isGenerating ? 'Preparing...' : 'Preview Replacement'}
+                                                                                                                                    </button>
+                                                                                                                                  <button onClick={handleResetSelection} className="w-full py-2.5 bg-slate-700 text-white text-sm rounded-xl hover:bg-slate-600 transition-colors">Reset Selection</button>
+                                                                                                          </>
+                                                                                                      )}
+                                                                                  {step === 'preview' && (
+                                                                                                        <>
+                                                                                                                                  <button onClick={applyChanges} className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-500 transition-all">Apply Changes</button>
+                                                                                                                                  <button onClick={cancelChanges} className="w-full py-2.5 bg-slate-700 text-white text-sm rounded-xl hover:bg-slate-600 transition-colors">Cancel</button>
+                                                                                                          </>
+                                                                                                      )}
+                                                                                  </div>
+                                                                              )}
+                                                                                                        
+                                                                                                        {(polygonPoints.length > 0 || rectangleSelection) && !showConfirmation && (
+                                                                                <div className="bg-slate-800/50 rounded-xl p-3">
+                                                                                                      <h4 className="text-xs font-medium text-slate-400 mb-2">Selection</h4>
+                                                                                                      <div className="text-xs">
+                                                                                                        {isPolygonClosed ? (
+                                                                                                          <span className="text-green-400">Polygon with {polygonPoints.length} points (closed)</span>
+                                                                                                        ) : polygonPoints.length > 0 ? (
+                                                                                                          <span className="text-yellow-400">Polygon with {polygonPoints.length} points (open)</span>
+                                                                                                        ) : rectangleSelection ? (
+                                                                                                          <span className="text-blue-400">Rectangle: {Math.round(rectangleSelection.width)} x {Math.round(rectangleSelection.height)}</span>
+                                                                                                        ) : null}
+                                                                                                        </div>
+                                                                                  </div>
+                                                                              )}
+                                                                                                        </div>
+                                                                                        </div>
+
+                                                                                      <div className="mt-6 bg-slate-800/50 rounded-xl p-4">
+                                                                                                      <h3 className="text-base font-semibold text-white mb-3">How to Use</h3>
+                                                                                                      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                                                                                        {[
+                                                              { n: 1, title: 'Upload', desc: 'Upload an image', icon: 'U' },
+                                                              { n: 2, title: 'Select', desc: 'Drag or click points', icon: 'S' },
+                                                              { n: 3, title: 'Edit', desc: 'Adjust detected styles', icon: 'E' },
+                                                              { n: 4, title: 'Confirm', desc: 'Review highlighted area', icon: 'C' },
+                                                              { n: 5, title: 'Apply', desc: 'Apply and download', icon: 'A' },
+                                                                              ].map(({ n, title, desc, icon }) => (
+                                                                                                  <div key={n} className="flex items-start space-x-2">
+                                                                                                                        <div className="w-7 h-7 bg-blue-500/20 rounded flex items-center justify-center text-sm flex-shrink-0 text-blue-400">{icon}</div>
+                                                                                                                        <div>
+                                                                                                                                                <h4 className="text-white text-sm font-medium">{title}</h4>
+                                                                                                                                                <p className="text-xs text-slate-400">{desc}</p>
+                                                                                                                          </div>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                        </div>
+                                                                                        </div>
+                                                                        </div>
+                                                            </div>
+                                                          );
+                                          }
+
+                                    ReactDOM.createRoot(document.getElementById('root')).render(<TextEditorPrototype />);
+                                </script>
+  </body>
+</html>html>
+  </body>
+    </style></title>
+  </head>
