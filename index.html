@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
           body { margin: 0; }
           .animate-spin { animation: spin 1s linear infinite; }
@@ -51,6 +52,8 @@
                     const [history, setHistory] = useState([]);
                     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
                     const [isDragging, setIsDragging] = useState(false);
+                    const [detectedText, setDetectedText] = useState('');
+                    const [ocrProgress, setOcrProgress] = useState(0);
 
                     const canvasRef = useRef(null);
                     const fileInputRef = useRef(null);
@@ -128,6 +131,7 @@
                               setRectangleSelection(null); setPolygonPoints([]); setIsPolygonClosed(false);
                               setGeneratedOverlay(null); setDetectedStyle(null); setFontSuggestions([]);
                               setTightBounds(null); setShowConfirmation(false); setPendingOverlay(null);
+                              setDetectedText(''); setOcrProgress(0);
                    };
 
                     const drawCanvas = () => {
@@ -394,6 +398,7 @@
 
                     const analyzeSelection = async () => {
                               setIsAnalyzing(true);
+                              setOcrProgress(0);
                               const canvas = canvasRef.current;
                               const ctx = canvas.getContext('2d');
                               let bounds;
@@ -414,6 +419,29 @@
                                                         Math.min(Math.floor(bounds.width), canvas.width - Math.floor(bounds.x)),
                                                         Math.min(Math.floor(bounds.height), canvas.height - Math.floor(bounds.y))
                                                       );
+
+                                          // Perform OCR on selected area
+                                          const tempCanvas = document.createElement('canvas');
+                                          tempCanvas.width = imageData.width;
+                                          tempCanvas.height = imageData.height;
+                                          const tempCtx = tempCanvas.getContext('2d');
+                                          tempCtx.putImageData(imageData, 0, 0);
+
+                                          const { data: { text } } = await Tesseract.recognize(
+                                                        tempCanvas.toDataURL(),
+                                                        'eng',
+                                                        {
+                                                                      logger: m => {
+                                                                                    if (m.status === 'recognizing text') {
+                                                                                                      setOcrProgress(Math.round(m.progress * 100));
+                                                                                    }
+                                                                      }
+                                                        }
+                                          );
+
+                                          setDetectedText(text.trim());
+                                          setReplacementText(text.trim());
+
                                           const analysis = await performAdvancedAnalysis(imageData, bounds, selectionMask);
                                           const tight = calculateTightTextBounds(imageData, bounds, analysis.style.rotation, analysis.style.skew);
                                           setTightBounds(tight);
@@ -424,6 +452,7 @@
                                           console.error('Analysis error:', err);
                               }
                               setIsAnalyzing(false);
+                              setOcrProgress(0);
                     };
 
                     const calculateTightTextBounds = (imageData, originalBounds, rotation, skew) => {
@@ -847,7 +876,7 @@
                                                                                       <div className="text-center mb-6">
                                                                                                       <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">AI Text Editor</h1>
                                                                                                       <p className="text-slate-400 text-sm md:text-base">
-                                                                                                                        Drag to select rectangle, or click to create custom polygon shapes
+                                                                                                                        Select text areas - AI automatically detects text, style, and rotation
                                                                                                         </p>
                                                                                         </div>
 
@@ -919,9 +948,19 @@
 
                                                                                     {(isGenerating || isAnalyzing) && (
                                                                                                             <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
-                                                                                                                                        <div className="bg-slate-800 rounded-xl p-5 flex flex-col items-center">
+                                                                                                                                        <div className="bg-slate-800 rounded-xl p-5 flex flex-col items-center min-w-[200px]">
                                                                                                                                                                       <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
-                                                                                                                                                                      <span className="text-white font-medium text-sm">{isAnalyzing ? 'Analyzing text style...' : 'Preparing preview...'}</span>
+                                                                                                                                                                      <span className="text-white font-medium text-sm mb-2">
+                                                                                                                                                                        {isAnalyzing ? (ocrProgress > 0 ? 'Detecting text...' : 'Analyzing style...') : 'Preparing preview...'}
+                                                                                                                                                                      </span>
+                                                                                                                                                                      {isAnalyzing && ocrProgress > 0 && (
+                                                                                                                                                                        <div className="w-full bg-slate-700 rounded-full h-2 mb-1">
+                                                                                                                                                                          <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: ocrProgress + '%' }}></div>
+                                                                                                                                                                        </div>
+                                                                                                                                                                      )}
+                                                                                                                                                                      {isAnalyzing && ocrProgress > 0 && (
+                                                                                                                                                                        <span className="text-slate-400 text-xs">{ocrProgress}%</span>
+                                                                                                                                                                      )}
                                                                                                                                           </div>
                                                                                                               </div>
                                                                                                           )}
@@ -998,6 +1037,16 @@
                                                                                   </div>
                                                                               )}
                                                                                                         
+                                                                                                        {detectedText && !showConfirmation && (
+                                                                                <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 rounded-xl p-4 border border-green-500/30">
+                                                                                                      <h3 className="text-sm font-semibold text-green-400 mb-2">Detected Text (OCR)</h3>
+                                                                                                      <div className="bg-slate-900/50 rounded-lg p-3 max-h-24 overflow-y-auto">
+                                                                                                                              <p className="text-white text-sm whitespace-pre-wrap">{detectedText}</p>
+                                                                                                        </div>
+                                                                                                      <p className="text-xs text-slate-500 mt-2">Edit below to modify the detected text</p>
+                                                                                  </div>
+                                                                              )}
+
                                                                                                         {detectedStyle && !showConfirmation && (
                                                                                 <div className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 rounded-xl p-4 border border-blue-500/30">
                                                                                                       <h3 className="text-sm font-semibold text-blue-400 mb-3">Auto-Detected Style</h3>
@@ -1012,10 +1061,12 @@
                                                                                                                                                         <span className="w-4 h-4 rounded border border-slate-600" style={{ backgroundColor: detectedStyle.backgroundColor }}></span>
                                                                                                                                                         <span className="text-white">{detectedStyle.backgroundColor}</span>
                                                                                                                                 </div>
-                                                                                                                              <div><span className="text-slate-400">Size:</span><span className="text-white ml-1">{detectedStyle.fontSize}px</span></div>
-                                                                                                                              <div><span className="text-slate-400">Weight:</span><span className="text-white ml-1 capitalize">{detectedStyle.fontWeight}</span></div>
+                                                                                                                              <div><span className="text-slate-400">Size:</span><span className="text-white ml-1">{detectedStyle.fontSize}px (auto)</span></div>
+                                                                                                                              <div><span className="text-slate-400">Weight:</span><span className="text-white ml-1 capitalize">{detectedStyle.fontWeight} (auto)</span></div>
+                                                                                                                              <div><span className="text-slate-400">Rotation:</span><span className="text-white ml-1">{Math.round(detectedStyle.rotation)}° (auto)</span></div>
+                                                                                                                              <div><span className="text-slate-400">Skew:</span><span className="text-white ml-1">{Math.round(detectedStyle.skew)}° (auto)</span></div>
                                                                                                         </div>
-                                                                                                      <p className="text-xs text-slate-500 mt-2">Adjust rotation/skew manually if text is angled</p>
+                                                                                                      <p className="text-xs text-slate-500 mt-2">All text properties detected automatically</p>
                                                                                   </div>
                                                                               )}
                                                                                                         
@@ -1040,17 +1091,14 @@
                                                                                                                                                                     </div>
                                                                                                                                                                   <div className="grid grid-cols-2 gap-3">
                                                                                                                                                                                           <div>
-                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Size (px)</label>
-                                                                                                                                                                                                                    <input type="number" value={styleSettings.fontSize} onChange={(e) => setStyleSettings(prev => ({ ...prev, fontSize: parseInt(e.target.value) || 16 }))}
-                                                                                                                                                                                                                                                disabled={showConfirmation} className="w-full bg-slate-700 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Size (Auto-detected)</label>
+                                                                                                                                                                                                                    <input type="number" value={styleSettings.fontSize} readOnly
+                                                                                                                                                                                                                                                className="w-full bg-slate-700/50 text-white text-sm rounded-lg p-2 cursor-not-allowed opacity-75" />
                                                                                                                                                                                                                   </div>
                                                                                                                                                                                           <div>
-                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Weight</label>
-                                                                                                                                                                                                                    <select value={styleSettings.fontWeight} onChange={(e) => setStyleSettings(prev => ({ ...prev, fontWeight: e.target.value }))}
-                                                                                                                                                                                                                                                disabled={showConfirmation} className="w-full bg-slate-700 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50">
-                                                                                                                                                                                                                                                <option value="normal">Normal</option>
-                                                                                                                                                                                                                                                <option value="bold">Bold</option>
-                                                                                                                                                                                                                                              </select>
+                                                                                                                                                                                                                    <label className="text-xs text-slate-400 mb-1 block">Weight (Auto-detected)</label>
+                                                                                                                                                                                                                    <input type="text" value={styleSettings.fontWeight} readOnly
+                                                                                                                                                                                                                                                className="w-full bg-slate-700/50 text-white text-sm rounded-lg p-2 cursor-not-allowed opacity-75 capitalize" />
                                                                                                                                                                                                                   </div>
                                                                                                                                                                     </div>
                                                                                                                                                                   <div className="grid grid-cols-2 gap-3">
@@ -1072,24 +1120,6 @@
                                                                                                                                                                                                                                                                               disabled={showConfirmation} className="flex-1 bg-slate-700 text-white text-xs rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50" />
                                                                                                                                                                                                                                               </div>
                                                                                                                                                                                                                   </div>
-                                                                                                                                                                    </div>
-                                                                                                                                                                  <div>
-                                                                                                                                                                                          <div className="flex justify-between items-center mb-1">
-                                                                                                                                                                                                                    <label className="text-xs text-slate-400">Rotation: {styleSettings.rotation}°</label>
-                                                                                                                                                                                                                    <button onClick={() => setStyleSettings(prev => ({ ...prev, rotation: 0 }))} className="text-xs text-blue-400 hover:text-blue-300">Reset</button>
-                                                                                                                                                                                                                  </div>
-                                                                                                                                                                                          <input type="range" min="-45" max="45" step="0.5" value={styleSettings.rotation}
-                                                                                                                                                                                                                    onChange={(e) => setStyleSettings(prev => ({ ...prev, rotation: parseFloat(e.target.value) }))}
-                                                                                                                                                                                                                    disabled={showConfirmation} className="w-full accent-blue-500 disabled:opacity-50" />
-                                                                                                                                                                    </div>
-                                                                                                                                                                  <div>
-                                                                                                                                                                                          <div className="flex justify-between items-center mb-1">
-                                                                                                                                                                                                                    <label className="text-xs text-slate-400">Skew: {styleSettings.skew}°</label>
-                                                                                                                                                                                                                    <button onClick={() => setStyleSettings(prev => ({ ...prev, skew: 0 }))} className="text-xs text-blue-400 hover:text-blue-300">Reset</button>
-                                                                                                                                                                                                                  </div>
-                                                                                                                                                                                          <input type="range" min="-20" max="20" step="0.5" value={styleSettings.skew}
-                                                                                                                                                                                                                    onChange={(e) => setStyleSettings(prev => ({ ...prev, skew: parseFloat(e.target.value) }))}
-                                                                                                                                                                                                                    disabled={showConfirmation} className="w-full accent-blue-500 disabled:opacity-50" />
                                                                                                                                                                     </div>
                                                                                                                                               </div>
                                                                                                                           </div>
