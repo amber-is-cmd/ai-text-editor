@@ -642,7 +642,7 @@
                               };
                     };
 
-                    // Advanced image preprocessing with OpenCV
+                    // Advanced image preprocessing with OpenCV - Enhanced for better OCR
                     const preprocessImageForOCR = (imageData) => {
                               if (typeof cv === 'undefined') {
                                           console.warn('OpenCV not loaded yet, using original image');
@@ -651,36 +651,72 @@
 
                               try {
                                           // Create OpenCV Mat from imageData
-                                          const src = cv.matFromImageData(imageData);
+                                          let src = cv.matFromImageData(imageData);
+
+                                          // STEP 1: Upscale if image is too small (improves OCR significantly)
+                                          if (src.cols < 200 || src.rows < 60) {
+                                                        const scale = Math.max(200 / src.cols, 60 / src.rows, 2.0);
+                                                        const upscaled = new cv.Mat();
+                                                        const dsize = new cv.Size(src.cols * scale, src.rows * scale);
+                                                        cv.resize(src, upscaled, dsize, 0, 0, cv.INTER_CUBIC);
+                                                        src.delete();
+                                                        src = upscaled;
+                                                        console.log(`Upscaled image by ${scale.toFixed(2)}x for better OCR`);
+                                          }
+
                                           const gray = new cv.Mat();
-                                          const blurred = new cv.Mat();
-                                          const thresh = new cv.Mat();
 
                                           // Convert to grayscale
                                           cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                                          // Apply Gaussian blur to reduce noise
-                                          cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+                                          // STEP 2: Apply bilateral filter to reduce noise while preserving edges
+                                          const bilateral = new cv.Mat();
+                                          cv.bilateralFilter(gray, bilateral, 9, 75, 75);
 
-                                          // Apply adaptive thresholding for better text extraction
-                                          cv.adaptiveThreshold(
-                                                        blurred,
-                                                        thresh,
-                                                        255,
-                                                        cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                        cv.THRESH_BINARY,
-                                                        11,
-                                                        2
+                                          // STEP 3: Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+                                          // This dramatically improves contrast for better character recognition
+                                          const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+                                          const enhanced = new cv.Mat();
+                                          clahe.apply(bilateral, enhanced);
+
+                                          // STEP 4: Sharpen the image using unsharp masking
+                                          const blurred = new cv.Mat();
+                                          cv.GaussianBlur(enhanced, blurred, new cv.Size(0, 0), 3);
+                                          const sharpened = new cv.Mat();
+                                          cv.addWeighted(enhanced, 1.5, blurred, -0.5, 0, sharpened);
+
+                                          // STEP 5: Apply Otsu's binarization (better than adaptive threshold for most text)
+                                          const binary = new cv.Mat();
+                                          cv.threshold(sharpened, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+                                          // STEP 6: Morphological operations to clean up
+                                          // Remove small noise
+                                          const kernel1 = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, 1));
+                                          const opened = new cv.Mat();
+                                          cv.morphologyEx(binary, opened, cv.MORPH_OPEN, kernel1);
+
+                                          // Close small gaps in characters
+                                          const kernel2 = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
+                                          const closed = new cv.Mat();
+                                          cv.morphologyEx(opened, closed, cv.MORPH_CLOSE, kernel2);
+
+                                          // STEP 7: Add border padding (helps OCR recognize edge characters)
+                                          const padded = new cv.Mat();
+                                          const borderSize = 10;
+                                          cv.copyMakeBorder(
+                                                        closed,
+                                                        padded,
+                                                        borderSize,
+                                                        borderSize,
+                                                        borderSize,
+                                                        borderSize,
+                                                        cv.BORDER_CONSTANT,
+                                                        new cv.Scalar(255, 255, 255, 255)
                                           );
-
-                                          // Optional: Apply morphological operations to clean up
-                                          const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
-                                          const morph = new cv.Mat();
-                                          cv.morphologyEx(thresh, morph, cv.MORPH_CLOSE, kernel);
 
                                           // Convert back to RGBA for canvas
                                           const rgba = new cv.Mat();
-                                          cv.cvtColor(morph, rgba, cv.COLOR_GRAY2RGBA);
+                                          cv.cvtColor(padded, rgba, cv.COLOR_GRAY2RGBA);
 
                                           // Create new imageData from processed image
                                           const processed = new ImageData(
@@ -689,13 +725,19 @@
                                                         rgba.rows
                                           );
 
-                                          // Clean up
+                                          // Clean up all matrices
                                           src.delete();
                                           gray.delete();
+                                          bilateral.delete();
+                                          enhanced.delete();
                                           blurred.delete();
-                                          thresh.delete();
-                                          kernel.delete();
-                                          morph.delete();
+                                          sharpened.delete();
+                                          binary.delete();
+                                          kernel1.delete();
+                                          opened.delete();
+                                          kernel2.delete();
+                                          closed.delete();
+                                          padded.delete();
                                           rgba.delete();
 
                                           return processed;
@@ -821,6 +863,88 @@
                                           console.error('Deskew error:', error);
                                           return imageData;
                               }
+                    };
+
+                    // Post-process OCR text to fix common recognition errors
+                    const postProcessOCRText = (text) => {
+                              if (!text) return '';
+
+                              let cleaned = text;
+
+                              // Remove excessive whitespace
+                              cleaned = cleaned.replace(/\s+/g, ' ');
+
+                              // Fix common OCR character substitutions
+                              const substitutions = {
+                                          // Common letter confusions
+                                          'rn': 'm',  // rn -> m (when close together)
+                                          'vv': 'w',  // vv -> w
+                                          'VV': 'W',  // VV -> W
+                                          '0': 'O',   // 0 -> O (in words, not standalone)
+                                          '1': 'I',   // 1 -> I (in words, not standalone)
+                                          '|': 'I',   // | -> I
+                                          '\\|': 'll', // \| -> ll
+                                          '5': 'S',   // 5 -> S (when surrounded by letters)
+                                          '8': 'B',   // 8 -> B (when surrounded by letters)
+                                          '6': 'G',   // 6 -> G (when surrounded by letters)
+                                          '9': 'g',   // 9 -> g (when surrounded by letters)
+                                          ']': 'I',   // ] -> I
+                                          '[': 'I',   // [ -> I
+                              };
+
+                              // Smart character replacement (only in word contexts)
+                              cleaned = cleaned.replace(/([a-zA-Z])0([a-zA-Z])/g, '$1O$2');  // letter-0-letter -> letter-O-letter
+                              cleaned = cleaned.replace(/([a-zA-Z])1([a-zA-Z])/g, '$1l$2');  // letter-1-letter -> letter-l-letter
+                              cleaned = cleaned.replace(/([a-zA-Z])5([a-zA-Z])/g, '$1S$2');  // letter-5-letter -> letter-S-letter
+                              cleaned = cleaned.replace(/([a-zA-Z])8([a-zA-Z])/g, '$1B$2');  // letter-8-letter -> letter-B-letter
+
+                              // Fix common word boundary issues
+                              cleaned = cleaned.replace(/\|/g, 'I');  // Replace pipes with I
+                              cleaned = cleaned.replace(/!/g, 'I');   // Sometimes ! is misread as I at word start
+
+                              // Remove isolated single characters that are likely noise (except common letters)
+                              cleaned = cleaned.replace(/\b[^\sa-zA-Z0-9]\b/g, '');
+
+                              // Fix double spaces
+                              cleaned = cleaned.replace(/\s\s+/g, ' ');
+
+                              // Capitalize first letter if text starts with lowercase (likely OCR error)
+                              if (cleaned.length > 0 && /^[a-z]/.test(cleaned)) {
+                                          cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                              }
+
+                              // Remove trailing/leading punctuation that doesn't make sense
+                              cleaned = cleaned.replace(/^[,.\-:;]+/, '');
+                              cleaned = cleaned.replace(/[,.\-:;]+$/, '');
+
+                              // Fix common word errors
+                              const wordFixes = {
+                                          'tlie': 'the',
+                                          'Tlie': 'The',
+                                          'witli': 'with',
+                                          'Witli': 'With',
+                                          'wliich': 'which',
+                                          'Wliich': 'Which',
+                                          'wliat': 'what',
+                                          'Wliat': 'What',
+                                          'tliat': 'that',
+                                          'Tliat': 'That',
+                                          'liave': 'have',
+                                          'Liave': 'Have',
+                                          'tliis': 'this',
+                                          'Tliis': 'This',
+                              };
+
+                              // Replace known word errors
+                              Object.entries(wordFixes).forEach(([wrong, right]) => {
+                                          const regex = new RegExp('\\b' + wrong + '\\b', 'g');
+                                          cleaned = cleaned.replace(regex, right);
+                              });
+
+                              // Remove zero-width characters and other invisible junk
+                              cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+                              return cleaned.trim();
                     };
 
                     // Automatic text region detection using OpenCV
@@ -966,20 +1090,37 @@
                                                                       const tempCtx = tempCanvas.getContext('2d');
                                                                       tempCtx.putImageData(regionData, 0, 0);
 
+                                                                      // Determine best PSM mode based on region dimensions
+                                                                      const aspectRatio = region.bounds.width / region.bounds.height;
+                                                                      let psmMode;
+                                                                      if (aspectRatio > 8) {
+                                                                                    psmMode = Tesseract.PSM.SINGLE_LINE;
+                                                                      } else if (aspectRatio > 3) {
+                                                                                    psmMode = Tesseract.PSM.SINGLE_BLOCK;
+                                                                      } else {
+                                                                                    psmMode = Tesseract.PSM.AUTO;
+                                                                      }
+
                                                                       const result = await Tesseract.recognize(
                                                                                     tempCanvas.toDataURL(),
                                                                                     'eng',
                                                                                     {
-                                                                                                      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
-                                                                                                      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?\'-"()[]{}/@#$%&*+=<>|\\/'
+                                                                                                      tessedit_pageseg_mode: psmMode,
+                                                                                                      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+                                                                                                      preserve_interword_spaces: '1'
                                                                                     }
                                                                       );
 
-                                                                      region.text = result.data.text.trim();
+                                                                      // Post-process text to fix common OCR errors
+                                                                      let cleanedText = result.data.text.trim();
+                                                                      cleanedText = postProcessOCRText(cleanedText);
+
+                                                                      region.text = cleanedText;
                                                                       region.confidence = result.data.confidence || 0;
                                                                       region.angle = angle;
+                                                                      region.psmMode = psmMode;
 
-                                                                      console.log(`Region ${i + 1}: "${region.text}" (${region.confidence.toFixed(1)}%)`);
+                                                                      console.log(`Region ${i + 1}: "${region.text}" (${region.confidence.toFixed(1)}%, PSM: ${psmMode})`);
                                                         } catch (err) {
                                                                       console.error(`Error processing region ${i}:`, err);
                                                         }
@@ -1062,11 +1203,15 @@
                                                                                     }
                                                                       },
                                                                       tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-                                                                      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?\'-"()[]{}/@#$%&*+=<>|\\/'
+                                                                      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+                                                                      preserve_interword_spaces: '1'
                                                         }
                                           );
 
-                                          const text = ocrResult.data.text.trim();
+                                          // Clean up OCR results
+                                          let text = ocrResult.data.text.trim();
+                                          text = postProcessOCRText(text);
+
                                           const confidence = ocrResult.data.confidence || 0;
 
                                           setDetectedText(text);
