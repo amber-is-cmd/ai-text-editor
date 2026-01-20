@@ -10,6 +10,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV.js loaded');"></script>
     <style>
           body { margin: 0; }
           .animate-spin { animation: spin 1s linear infinite; }
@@ -57,12 +58,29 @@
                     const [ocrProgress, setOcrProgress] = useState(0);
                     const [qualityChecks, setQualityChecks] = useState(null);
                     const [ocrConfidence, setOcrConfidence] = useState(0);
+                    const [openCVReady, setOpenCVReady] = useState(false);
 
                     const canvasRef = useRef(null);
                     const fileInputRef = useRef(null);
                     const imageObjRef = useRef(null);
                     const dragStartTime = useRef(0);
                     const dragStartPos = useRef(null);
+
+                    // Check if OpenCV is loaded
+                    useEffect(() => {
+                              const checkOpenCV = setInterval(() => {
+                                          if (typeof cv !== 'undefined' && cv.Mat) {
+                                                        setOpenCVReady(true);
+                                                        console.log('OpenCV.js is ready!');
+                                                        clearInterval(checkOpenCV);
+                                          }
+                              }, 100);
+
+                              // Clear interval after 30 seconds
+                              setTimeout(() => clearInterval(checkOpenCV), 30000);
+
+                              return () => clearInterval(checkOpenCV);
+                    }, []);
 
                     const handleFileChange = (event) => {
                               const file = event.target.files?.[0];
@@ -580,6 +598,187 @@
                               };
                     };
 
+                    // Advanced image preprocessing with OpenCV
+                    const preprocessImageForOCR = (imageData) => {
+                              if (typeof cv === 'undefined') {
+                                          console.warn('OpenCV not loaded yet, using original image');
+                                          return imageData;
+                              }
+
+                              try {
+                                          // Create OpenCV Mat from imageData
+                                          const src = cv.matFromImageData(imageData);
+                                          const gray = new cv.Mat();
+                                          const blurred = new cv.Mat();
+                                          const thresh = new cv.Mat();
+
+                                          // Convert to grayscale
+                                          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                                          // Apply Gaussian blur to reduce noise
+                                          cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+
+                                          // Apply adaptive thresholding for better text extraction
+                                          cv.adaptiveThreshold(
+                                                        blurred,
+                                                        thresh,
+                                                        255,
+                                                        cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                        cv.THRESH_BINARY,
+                                                        11,
+                                                        2
+                                          );
+
+                                          // Optional: Apply morphological operations to clean up
+                                          const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
+                                          const morph = new cv.Mat();
+                                          cv.morphologyEx(thresh, morph, cv.MORPH_CLOSE, kernel);
+
+                                          // Convert back to RGBA for canvas
+                                          const rgba = new cv.Mat();
+                                          cv.cvtColor(morph, rgba, cv.COLOR_GRAY2RGBA);
+
+                                          // Create new imageData from processed image
+                                          const processed = new ImageData(
+                                                        new Uint8ClampedArray(rgba.data),
+                                                        rgba.cols,
+                                                        rgba.rows
+                                          );
+
+                                          // Clean up
+                                          src.delete();
+                                          gray.delete();
+                                          blurred.delete();
+                                          thresh.delete();
+                                          kernel.delete();
+                                          morph.delete();
+                                          rgba.delete();
+
+                                          return processed;
+                              } catch (error) {
+                                          console.error('OpenCV preprocessing error:', error);
+                                          return imageData;
+                              }
+                    };
+
+                    // Advanced text angle detection using Hough Transform
+                    const detectTextAngleOpenCV = (imageData) => {
+                              if (typeof cv === 'undefined') {
+                                          return detectTextAngle(imageData, null); // Fallback to original method
+                              }
+
+                              try {
+                                          const src = cv.matFromImageData(imageData);
+                                          const gray = new cv.Mat();
+                                          const edges = new cv.Mat();
+                                          const lines = new cv.Mat();
+
+                                          // Convert to grayscale
+                                          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                                          // Detect edges using Canny
+                                          cv.Canny(gray, edges, 50, 150, 3);
+
+                                          // Detect lines using Hough Transform
+                                          cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
+
+                                          // Calculate angles from detected lines
+                                          const angles = [];
+                                          for (let i = 0; i < lines.rows; i++) {
+                                                        const startX = lines.data32S[i * 4];
+                                                        const startY = lines.data32S[i * 4 + 1];
+                                                        const endX = lines.data32S[i * 4 + 2];
+                                                        const endY = lines.data32S[i * 4 + 3];
+
+                                                        const angle = Math.atan2(endY - startY, endX - startX) * (180 / Math.PI);
+
+                                                        // Normalize angle to -90 to 90
+                                                        let normalizedAngle = angle;
+                                                        if (normalizedAngle > 90) normalizedAngle -= 180;
+                                                        if (normalizedAngle < -90) normalizedAngle += 180;
+
+                                                        // Filter out near-vertical lines (they're probably not text baseline)
+                                                        if (Math.abs(normalizedAngle) < 45) {
+                                                                      angles.push(normalizedAngle);
+                                                        }
+                                          }
+
+                                          // Clean up
+                                          src.delete();
+                                          gray.delete();
+                                          edges.delete();
+                                          lines.delete();
+
+                                          if (angles.length === 0) {
+                                                        return 0;
+                                          }
+
+                                          // Find median angle
+                                          angles.sort((a, b) => a - b);
+                                          const medianAngle = angles[Math.floor(angles.length / 2)];
+
+                                          return medianAngle;
+                              } catch (error) {
+                                          console.error('OpenCV angle detection error:', error);
+                                          return detectTextAngle(imageData, null); // Fallback
+                              }
+                    };
+
+                    // Auto-deskew image
+                    const deskewImage = (imageData, angle) => {
+                              if (typeof cv === 'undefined' || Math.abs(angle) < 0.5) {
+                                          return imageData;
+                              }
+
+                              try {
+                                          const src = cv.matFromImageData(imageData);
+                                          const dst = new cv.Mat();
+
+                                          // Calculate rotation matrix
+                                          const center = new cv.Point(src.cols / 2, src.rows / 2);
+                                          const rotationMatrix = cv.getRotationMatrix2D(center, -angle, 1.0);
+
+                                          // Calculate new dimensions to avoid cropping
+                                          const cos = Math.abs(rotationMatrix.doubleAt(0, 0));
+                                          const sin = Math.abs(rotationMatrix.doubleAt(0, 1));
+                                          const newWidth = Math.floor(src.rows * sin + src.cols * cos);
+                                          const newHeight = Math.floor(src.rows * cos + src.cols * sin);
+
+                                          // Adjust rotation matrix for new center
+                                          rotationMatrix.doublePtr(0, 2)[0] += (newWidth / 2) - center.x;
+                                          rotationMatrix.doublePtr(1, 2)[0] += (newHeight / 2) - center.y;
+
+                                          // Perform rotation
+                                          const dsize = new cv.Size(newWidth, newHeight);
+                                          cv.warpAffine(
+                                                        src,
+                                                        dst,
+                                                        rotationMatrix,
+                                                        dsize,
+                                                        cv.INTER_CUBIC,
+                                                        cv.BORDER_CONSTANT,
+                                                        new cv.Scalar(255, 255, 255, 255)
+                                          );
+
+                                          // Convert back to imageData
+                                          const deskewed = new ImageData(
+                                                        new Uint8ClampedArray(dst.data),
+                                                        dst.cols,
+                                                        dst.rows
+                                          );
+
+                                          // Clean up
+                                          src.delete();
+                                          dst.delete();
+                                          rotationMatrix.delete();
+
+                                          return deskewed;
+                              } catch (error) {
+                                          console.error('Deskew error:', error);
+                                          return imageData;
+                              }
+                    };
+
                     const analyzeSelection = async () => {
                               setIsAnalyzing(true);
                               setOcrProgress(0);
@@ -597,19 +796,31 @@
                                           return;
                               }
                               try {
-                                          const imageData = ctx.getImageData(
+                                          let imageData = ctx.getImageData(
                                                         Math.max(0, Math.floor(bounds.x)),
                                                         Math.max(0, Math.floor(bounds.y)),
                                                         Math.min(Math.floor(bounds.width), canvas.width - Math.floor(bounds.x)),
                                                         Math.min(Math.floor(bounds.height), canvas.height - Math.floor(bounds.y))
                                                       );
 
-                                          // Perform OCR on selected area
+                                          // Detect text angle using advanced method
+                                          const detectedAngle = detectTextAngleOpenCV(imageData);
+                                          console.log('Detected text angle:', detectedAngle);
+
+                                          // Deskew if angle is significant
+                                          if (Math.abs(detectedAngle) > 0.5) {
+                                                        imageData = deskewImage(imageData, detectedAngle);
+                                          }
+
+                                          // Preprocess image for better OCR
+                                          const preprocessed = preprocessImageForOCR(imageData);
+
+                                          // Perform OCR on preprocessed area
                                           const tempCanvas = document.createElement('canvas');
-                                          tempCanvas.width = imageData.width;
-                                          tempCanvas.height = imageData.height;
+                                          tempCanvas.width = preprocessed.width;
+                                          tempCanvas.height = preprocessed.height;
                                           const tempCtx = tempCanvas.getContext('2d');
-                                          tempCtx.putImageData(imageData, 0, 0);
+                                          tempCtx.putImageData(preprocessed, 0, 0);
 
                                           const ocrResult = await Tesseract.recognize(
                                                         tempCanvas.toDataURL(),
@@ -619,7 +830,9 @@
                                                                                     if (m.status === 'recognizing text') {
                                                                                                       setOcrProgress(Math.round(m.progress * 100));
                                                                                     }
-                                                                      }
+                                                                      },
+                                                                      tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+                                                                      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?\'-"()[]{}/@#$%&*+=<>|\\/'
                                                         }
                                           );
 
@@ -630,15 +843,24 @@
                                           setReplacementText(text);
                                           setOcrConfidence(confidence);
 
-                                          const analysis = await performAdvancedAnalysis(imageData, bounds, selectionMask);
-                                          const tight = calculateTightTextBounds(imageData, bounds, analysis.style.rotation, analysis.style.skew);
+                                          console.log('OCR Result:', { text, confidence, angle: detectedAngle });
+
+                                          const analysis = await performAdvancedAnalysis(imageData, bounds, selectionMask, detectedAngle);
+                                          const tight = calculateTightTextBounds(imageData, bounds, detectedAngle, analysis.style.skew);
                                           setTightBounds(tight);
-                                          setDetectedStyle(analysis.style);
-                                          setStyleSettings(prev => ({ ...prev, ...analysis.style }));
+
+                                          // Use detected angle instead of estimated one
+                                          const enhancedStyle = {
+                                                        ...analysis.style,
+                                                        rotation: detectedAngle
+                                          };
+
+                                          setDetectedStyle(enhancedStyle);
+                                          setStyleSettings(prev => ({ ...prev, ...enhancedStyle }));
                                           setFontSuggestions(analysis.fontSuggestions);
 
                                           // Perform AI quality control checks
-                                          const qualityReport = performQualityChecks(imageData, analysis.style, { confidence });
+                                          const qualityReport = performQualityChecks(imageData, enhancedStyle, { confidence });
                                           setQualityChecks(qualityReport);
                               } catch (err) {
                                           console.error('Analysis error:', err);
@@ -783,13 +1005,16 @@
                   return detectedAngle;
         };
 
-        const performAdvancedAnalysis = async (imageData, bounds, mask) => {
+        const performAdvancedAnalysis = async (imageData, bounds, mask, providedAngle) => {
                   const data = imageData.data;
                   const width = imageData.width;
                   const height = imageData.height;
                   const colorAnalysis = analyzeColorsImproved(data, width, height, mask);
                   const textCharacteristics = analyzeTextCharacteristicsImproved(data, width, height, mask, colorAnalysis);
-                  const detectedAngle = detectTextAngle(imageData, mask);
+
+                  // Use provided angle from OpenCV if available, otherwise fallback to gradient method
+                  const detectedAngle = providedAngle !== undefined ? providedAngle : detectTextAngle(imageData, mask);
+
                   const fontSuggestions = await suggestFonts(textCharacteristics, documentContext);
                   return {
                               style: {
@@ -1182,6 +1407,12 @@
                                                                                                                               <div><span className="text-slate-500">Type:</span><span className="text-white ml-1 capitalize">{documentContext.documentType}</span></div>
                                                                                                                               <div><span className="text-slate-500">DPI:</span><span className="text-white ml-1">~{documentContext.estimatedDPI}</span></div>
                                                                                                                               <div><span className="text-slate-500">Text Density:</span><span className="text-white ml-1">{Math.round(documentContext.textDensity * 100)}%</span></div>
+                                                                                                                              <div>
+                                                                                                                                                        <span className="text-slate-500">OpenCV:</span>
+                                                                                                                                                        <span className={'ml-1 font-semibold ' + (openCVReady ? 'text-green-400' : 'text-yellow-400')}>
+                                                                                                                                                          {openCVReady ? '✓ Ready' : '⏳ Loading...'}
+                                                                                                                                                          </span>
+                                                                                                                                </div>
                                                                                                         </div>
                                                                                   </div>
                                                                               )}
