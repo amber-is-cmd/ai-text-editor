@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Text Editor V4 Production - Hardened</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .canvas-bg { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 20px 20px; }
+        .animate-pulse-fast { animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fadeInUp 0.3s ease-out; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect, useCallback } = React;
+
+        // --- ENHANCED OCR PREPROCESSING (7-STEP PIPELINE) ---
+        const preprocessImageForOCR = (canvas) => {
+            return new Promise((resolve) => {
+                if (typeof cv === 'undefined') {
+                    console.warn('OpenCV not loaded, using original image');
+                    resolve(canvas.toDataURL());
+                    return;
+                }
+
+                let src, gray, bilateral, enhanced, blurred, sharpened, binary;
+                let kernel1, opened, kernel2, closed, padded, rgba;
+
+                try {
+                    const ctx = canvas.getContext('2d');
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    src = cv.matFromImageData(imageData);
+
+                    // STEP 1: Upscale if too small
+                    if (src.cols < 200 || src.rows < 60) {
+                        const scale = Math.max(200 / src.cols, 60 / src.rows, 2.0);
+                        const upscaled = new cv.Mat();
+                        const dsize = new cv.Size(src.cols * scale, src.rows * scale);
+                        cv.resize(src, upscaled, dsize, 0, 0, cv.INTER_CUBIC);
+                        src.delete();
+                        src = upscaled;
+                        console.log(`📈 Upscaled ${scale.toFixed(2)}x for better OCR`);
+                    }
+
+                    gray = new cv.Mat();
+                    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                    // STEP 2: Bilateral filter
+                    bilateral = new cv.Mat();
+                    cv.bilateralFilter(gray, bilateral, 9, 75, 75);
+
+                    // STEP 3: CLAHE
+                    const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+                    enhanced = new cv.Mat();
+                    clahe.apply(bilateral, enhanced);
+
+                    // STEP 4: Unsharp masking
+                    blurred = new cv.Mat();
+                    cv.GaussianBlur(enhanced, blurred, new cv.Size(0, 0), 3);
+                    sharpened = new cv.Mat();
+                    cv.addWeighted(enhanced, 1.5, blurred, -0.5, 0, sharpened);
+
+                    // STEP 5: Otsu's binarization
+                    binary = new cv.Mat();
+                    cv.threshold(sharpened, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+                    // STEP 6: Morphological cleanup
+                    kernel1 = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, 1));
+                    opened = new cv.Mat();
+                    cv.morphologyEx(binary, opened, cv.MORPH_OPEN, kernel1);
+
+                    kernel2 = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
+                    closed = new cv.Mat();
+                    cv.morphologyEx(opened, closed, cv.MORPH_CLOSE, kernel2);
+
+                    // STEP 7: Border padding
+                    padded = new cv.Mat();
+                    cv.copyMakeBorder(closed, padded, 10, 10, 10, 10, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
+
+                    // Convert back
+                    rgba = new cv.Mat();
+                    cv.cvtColor(padded, rgba, cv.COLOR_GRAY2RGBA);
+
+                    const resultCanvas = document.createElement('canvas');
+                    resultCanvas.width = rgba.cols;
+                    resultCanvas.height = rgba.rows;
+                    const resultCtx = resultCanvas.getContext('2d');
+                    const resultImageData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+                    resultCtx.putImageData(resultImageData, 0, 0);
+
+                    resolve(resultCanvas.toDataURL());
+                } catch (error) {
+                    console.error('Preprocessing error:', error);
+                    resolve(canvas.toDataURL());
+                } finally {
+                    // CRITICAL: Always cleanup to prevent memory leaks
+                    if (src) src.delete();
+                    if (gray) gray.delete();
+                    if (bilateral) bilateral.delete();
+                    if (enhanced) enhanced.delete();
+                    if (blurred) blurred.delete();
+                    if (sharpened) sharpened.delete();
+                    if (binary) binary.delete();
+                    if (kernel1) kernel1.delete();
+                    if (opened) opened.delete();
+                    if (kernel2) kernel2.delete();
+                    if (closed) closed.delete();
+                    if (padded) padded.delete();
+                    if (rgba) rgba.delete();
+                }
+            });
+        };
+
+        const postProcessOCRText = (text) => {
+            if (!text) return '';
+            let cleaned = text.replace(/\s+/g, ' ');
+
+            // Smart character replacement (only in word contexts)
+            cleaned = cleaned.replace(/([a-zA-Z])0([a-zA-Z])/g, '$1O$2');
+            cleaned = cleaned.replace(/([a-zA-Z])1([a-zA-Z])/g, '$1l$2');
+            cleaned = cleaned.replace(/([a-zA-Z])5([a-zA-Z])/g, '$1S$2');
+            cleaned = cleaned.replace(/([a-zA-Z])8([a-zA-Z])/g, '$1B$2');
+            cleaned = cleaned.replace(/([a-zA-Z])\|([a-zA-Z])/g, '$1I$2'); // Only between letters
+
+            const wordFixes = {
+                'tlie': 'the', 'Tlie': 'The', 'witli': 'with', 'Witli': 'With',
+                'wliich': 'which', 'Wliich': 'Which', 'wliat': 'what', 'Wliat': 'What',
+                'tliat': 'that', 'Tliat': 'That', 'liave': 'have', 'Liave': 'Have',
+                'tliis': 'this', 'Tliis': 'This'
+            };
+
+            Object.entries(wordFixes).forEach(([wrong, right]) => {
+                const regex = new RegExp('\\b' + wrong + '\\b', 'g');
+                cleaned = cleaned.replace(regex, right);
+            });
+
+            if (cleaned.length > 0 && /^[a-z]/.test(cleaned)) {
+                cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+            }
+
+            cleaned = cleaned.replace(/^[,.\-:;]+/, '').replace(/[,.\-:;]+$/, '');
+            return cleaned.trim();
+        };
+
+        const analyzePixelData = (ctx, bounds, ocrWords) => {
+            const imgData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+            const data = imgData.data;
+            const totalPixels = bounds.width * bounds.height;
+
+            let bgR=0, bgG=0, bgB=0, bgCount=0;
+            const borderSize = Math.min(bounds.width, bounds.height) * 0.1;
+
+            for(let y=0; y<bounds.height; y++) {
+                for(let x=0; x<bounds.width; x++) {
+                    if (x < borderSize || x > bounds.width - borderSize ||
+                        y < borderSize || y > bounds.height - borderSize) {
+                        const i = (y * bounds.width + x) * 4;
+                        bgR += data[i]; bgG += data[i+1]; bgB += data[i+2];
+                        bgCount++;
+                    }
+                }
+            }
+            const avgBg = { r: Math.round(bgR/bgCount), g: Math.round(bgG/bgCount), b: Math.round(bgB/bgCount) };
+
+            let textR=0, textG=0, textB=0, textCount=0;
+            const threshold = 50;
+
+            for(let i=0; i<data.length; i+=4) {
+                const diff = Math.abs(data[i] - avgBg.r) + Math.abs(data[i+1] - avgBg.g) + Math.abs(data[i+2] - avgBg.b);
+                if(diff > threshold) {
+                    textR += data[i]; textG += data[i+1]; textB += data[i+2];
+                    textCount++;
+                }
+            }
+
+            const avgText = textCount > 0
+                ? { r: Math.round(textR/textCount), g: Math.round(textG/textCount), b: Math.round(textB/textCount) }
+                : { r: 0, g: 0, b: 0 };
+
+            const textColorHex = `#${((1 << 24) + (avgText.r << 16) + (avgText.g << 8) + avgText.b).toString(16).slice(1)}`;
+
+            // Multi-line sampling for better accuracy
+            let strokeWidths = [];
+            const sampleLines = [0.3, 0.5, 0.7];
+
+            sampleLines.forEach(ratio => {
+                let inkRun = 0;
+                const y = Math.floor(bounds.height * ratio);
+                for(let x=0; x<bounds.width; x++) {
+                    const i = (y * bounds.width + x) * 4;
+                    const isInk = (Math.abs(data[i] - avgBg.r) + Math.abs(data[i+1] - avgBg.g) + Math.abs(data[i+2] - avgBg.b)) > threshold;
+                    if(isInk) inkRun++;
+                    else if(inkRun > 0) { strokeWidths.push(inkRun); inkRun = 0; }
+                }
+            });
+
+            const avgStrokeWidth = strokeWidths.length ? strokeWidths.reduce((a,b)=>a+b)/strokeWidths.length : 1;
+            const isBold = avgStrokeWidth > (bounds.height * 0.08);
+
+            const variance = strokeWidths.length ? strokeWidths.reduce((a,b) => a + Math.pow(b - avgStrokeWidth, 2), 0) / strokeWidths.length : 0;
+            const isSerif = variance > 3;
+
+            return {
+                color: textColorHex,
+                fontWeight: isBold ? 'bold' : 'normal',
+                fontFamily: isSerif ? 'Times New Roman' : 'Arial',
+                bgColor: `rgb(${avgBg.r},${avgBg.g},${avgBg.b})`,
+                contrastRatio: textCount / totalPixels // For validation
+            };
+        };
+
+        // Helper: Check if rectangles overlap
+        const rectsOverlap = (r1, r2) => {
+            return !(r1.x + r1.w < r2.x || r2.x + r2.w < r1.x ||
+                     r1.y + r1.h < r2.y || r2.y + r2.h < r1.y);
+        };
+
+        function App() {
+            const [file, setFile] = useState(null);
+            const [status, setStatus] = useState('IDLE');
+            const [statusMsg, setStatusMsg] = useState('');
+            const [ocrProgress, setOcrProgress] = useState(0);
+
+            const [selection, setSelection] = useState(null);
+            const [autoStyle, setAutoStyle] = useState(null);
+            const [replacementText, setReplacementText] = useState('');
+            const [originalText, setOriginalText] = useState('');
+            const [confidence, setConfidence] = useState(0);
+
+            const canvasRef = useRef(null);
+            const imgRef = useRef(null);
+            const [drag, setDrag] = useState(null);
+            const [history, setHistory] = useState([]);
+            const [cvReady, setCvReady] = useState(false);
+
+            useEffect(() => {
+                const checkCV = setInterval(() => {
+                    if (typeof cv !== 'undefined' && cv.Mat) {
+                        setCvReady(true);
+                        console.log('✅ OpenCV.js ready');
+                        clearInterval(checkCV);
+                    }
+                }, 100);
+                setTimeout(() => clearInterval(checkCV), 30000);
+                return () => clearInterval(checkCV);
+            }, []);
+
+            const handleFile = async (e) => {
+                const f = e.target.files[0];
+                if (!f) return;
+                setStatus('PROCESSING');
+                setStatusMsg('Loading Document...');
+
+                if(f.type === 'application/pdf') {
+                    const reader = new FileReader();
+                    reader.onload = async (ev) => {
+                        try {
+                            const pdf = await pdfjsLib.getDocument(ev.target.result).promise;
+                            const page = await pdf.getPage(1);
+                            const viewport = page.getViewport({ scale: 2.0 });
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            canvas.width = viewport.width;
+                            canvas.height = viewport.height;
+                            await page.render({ canvasContext: ctx, viewport }).promise;
+                            loadImage(canvas.toDataURL());
+                        } catch (error) {
+                            console.error('PDF error:', error);
+                            alert('❌ Could not load PDF. It may be corrupted or password-protected.');
+                            setStatus('IDLE');
+                        }
+                    };
+                    reader.readAsArrayBuffer(f);
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => loadImage(ev.target.result);
+                    reader.readAsDataURL(f);
+                }
+            };
+
+            const loadImage = (src) => {
+                const img = new Image();
+                img.onload = () => {
+                    imgRef.current = img;
+                    setFile(src);
+                    setStatus('IDLE');
+                    setHistory([]);
+                    setSelection(null);
+                    draw();
+                };
+                img.src = src;
+            };
+
+            const draw = useCallback(() => {
+                const canvas = canvasRef.current;
+                const img = imgRef.current;
+                if (!canvas || !img) return;
+
+                const ctx = canvas.getContext('2d');
+                if (canvas.width !== img.naturalWidth) {
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                }
+
+                ctx.clearRect(0,0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+
+                history.forEach(edit => renderEdit(ctx, edit));
+
+                if (status === 'EDITING' && autoStyle) {
+                    renderEdit(ctx, { rect: selection, text: replacementText, style: autoStyle }, true);
+                }
+
+                if (drag) {
+                    const w = drag.end.x - drag.start.x;
+                    const h = drag.end.y - drag.start.y;
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeRect(drag.start.x, drag.start.y, w, h);
+                    ctx.setLineDash([]);
+                }
+            }, [file, drag, history, status, autoStyle, replacementText]);
+
+            useEffect(() => draw(), [draw]);
+
+            const renderEdit = (ctx, edit, isPreview = false) => {
+                const { rect, text, style } = edit;
+                ctx.save();
+
+                ctx.fillStyle = style.bgColor || '#fff';
+                ctx.translate(rect.x + rect.w/2, rect.y + rect.h/2);
+                ctx.rotate((style.rotation * Math.PI) / 180);
+                ctx.fillRect(-rect.w/2, -rect.h/2, rect.w, rect.h);
+
+                if (text) {
+                    ctx.font = `${style.fontWeight} ${style.fontSize}px ${style.fontFamily}`;
+                    ctx.fillStyle = style.color;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    const metrics = ctx.measureText(text);
+                    if (metrics.width > rect.w - 20) {
+                        const scale = (rect.w - 20) / metrics.width;
+                        ctx.scale(scale, 1);
+                    }
+
+                    ctx.fillText(text, 0, 0);
+                }
+
+                if (isPreview) {
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(-rect.w/2, -rect.h/2, rect.w, rect.h);
+                }
+
+                ctx.restore();
+            };
+
+            const processSelection = async (rect) => {
+                // ========== VALIDATION GUARDS ==========
+                const MIN_SIZE = 30, MIN_HEIGHT = 15;
+                const MAX_SIZE = 2000;
+
+                if (rect.w < MIN_SIZE || rect.h < MIN_HEIGHT) {
+                    alert(`⚠️ Selection too small!\n\nMinimum size: ${MIN_SIZE}×${MIN_HEIGHT}px\nYour selection: ${Math.round(rect.w)}×${Math.round(rect.h)}px\n\nPlease draw a larger box around the text.`);
+                    return;
+                }
+
+                if (rect.w > MAX_SIZE || rect.h > MAX_SIZE) {
+                    alert(`⚠️ Selection too large!\n\nMaximum size: ${MAX_SIZE}×${MAX_SIZE}px\nYour selection: ${Math.round(rect.w)}×${Math.round(rect.h)}px\n\nPlease select a smaller area.`);
+                    return;
+                }
+
+                // Check for overlap
+                const overlapping = history.filter(edit => rectsOverlap(edit.rect, rect));
+                if (overlapping.length > 0) {
+                    const proceed = confirm(
+                        `⚠️ This area overlaps with ${overlapping.length} existing edit(s).\n\n` +
+                        `Do you want to replace the previous edit(s)?`
+                    );
+                    if (proceed) {
+                        setHistory(history.filter(e => !rectsOverlap(e.rect, rect)));
+                    } else {
+                        return;
+                    }
+                }
+
+                // Warn if OpenCV not ready
+                if (!cvReady) {
+                    const proceed = confirm(
+                        '⚠️ OpenCV not ready yet.\n\n' +
+                        'OCR will use basic processing (lower quality).\n\n' +
+                        'Continue anyway?'
+                    );
+                    if (!proceed) return;
+                }
+
+                setStatus('PROCESSING');
+                setStatusMsg('Enhancing image quality...');
+
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+
+                const snippet = document.createElement('canvas');
+                snippet.width = rect.w;
+                snippet.height = rect.h;
+                snippet.getContext('2d').drawImage(canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+
+                try {
+                    setStatusMsg('Applying 7-step enhancement pipeline...');
+                    const enhanced = await preprocessImageForOCR(snippet);
+
+                    setStatusMsg('Recognizing text with AI...');
+
+                    // OCR with timeout
+                    const ocrPromise = Tesseract.recognize(enhanced, 'eng', {
+                        logger: m => {
+                            if (m.status === 'recognizing text') {
+                                setOcrProgress(Math.round(m.progress * 100));
+                            }
+                        },
+                        tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+                        preserve_interword_spaces: '1'
+                    });
+
+                    const timeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('OCR timeout')), 30000)
+                    );
+
+                    const result = await Promise.race([ocrPromise, timeout]);
+
+                    const rawText = result.data.text.trim();
+                    const cleanedText = postProcessOCRText(rawText);
+                    const lines = result.data.lines;
+                    const conf = result.data.confidence || 0;
+
+                    console.log('📝 Raw OCR:', rawText);
+                    console.log('✨ Cleaned:', cleanedText);
+                    console.log('📊 Confidence:', conf.toFixed(1) + '%');
+
+                    // ========== QUALITY VALIDATION ==========
+                    if (!cleanedText || cleanedText.length < 2) {
+                        alert(
+                            '❌ No readable text found!\n\n' +
+                            'Tips:\n' +
+                            '• Select an area with clear text\n' +
+                            '• Draw a larger selection box\n' +
+                            '• Use a higher quality image\n' +
+                            '• Ensure good contrast between text and background'
+                        );
+                        setStatus('IDLE');
+                        return;
+                    }
+
+                    if (conf < 30) {
+                        const proceed = confirm(
+                            `⚠️ Low confidence detection!\n\n` +
+                            `Confidence: ${conf.toFixed(1)}%\n` +
+                            `Detected: "${cleanedText}"\n\n` +
+                            `This might not be text or the quality is poor.\n\n` +
+                            `Continue anyway?`
+                        );
+                        if (!proceed) {
+                            setStatus('IDLE');
+                            return;
+                        }
+                    }
+
+                    // Auto-Detect Rotation
+                    let rotation = 0;
+                    if (lines.length > 0 && lines[0]?.baseline) {
+                        const bl = lines[0].baseline;
+                        rotation = Math.atan2(bl.y1 - bl.y0, bl.x1 - bl.x0) * (180/Math.PI);
+
+                        // Warn about extreme rotation
+                        const actualRotation = rotation;
+                        rotation = Math.max(-45, Math.min(45, rotation));
+
+                        if (Math.abs(actualRotation) > 45) {
+                            alert(`ℹ️ Text is heavily rotated (${actualRotation.toFixed(0)}°).\n\nFor best results, rotate the image first.`);
+                        }
+                    }
+
+                    setStatusMsg('Analyzing colors and styles...');
+                    const pixelStyle = analyzePixelData(ctx,
+                        {x: rect.x, y: rect.y, width: rect.w, height: rect.h},
+                        result.data.words
+                    );
+
+                    // Warn about low contrast
+                    if (pixelStyle.contrastRatio < 0.05) {
+                        alert('⚠️ Very low contrast detected!\n\nText and background are similar colors.\nResults may be inaccurate.');
+                    }
+
+                    const lineCount = lines.length || 1;
+                    let estimatedFontSize = (rect.h / lineCount) * 0.75;
+
+                    if (lines.length > 0 && lines[0].bbox) {
+                        estimatedFontSize = Math.round(lines[0].bbox.y1 - lines[0].bbox.y0);
+                    }
+
+                    const finalStyle = {
+                        ...pixelStyle,
+                        rotation: rotation,
+                        fontSize: Math.max(10, Math.min(100, Math.round(estimatedFontSize)))
+                    };
+
+                    setOriginalText(cleanedText);
+                    setReplacementText(cleanedText);
+                    setAutoStyle(finalStyle);
+                    setConfidence(conf);
+                    setSelection(rect);
+                    setStatus('EDITING');
+
+                } catch (err) {
+                    console.error('Analysis error:', err);
+                    if (err.message === 'OCR timeout') {
+                        alert('❌ OCR timeout!\n\nThe selection was too large or complex.\nTry selecting a smaller area.');
+                    } else {
+                        alert('❌ Could not analyze text.\n\nTry selecting a clearer area or a different part of the image.');
+                    }
+                    setStatus('IDLE');
+                }
+            };
+
+            const getCoords = (e) => {
+                const r = canvasRef.current.getBoundingClientRect();
+                const sx = canvasRef.current.width / r.width;
+                const sy = canvasRef.current.height / r.height;
+                return { x: (e.clientX - r.left)*sx, y: (e.clientY - r.top)*sy };
+            };
+
+            const onDown = (e) => {
+                if(status !== 'IDLE') return;
+                const p = getCoords(e);
+                setDrag({ start: p, end: p });
+            };
+
+            const onMove = (e) => {
+                if(!drag) return;
+                setDrag({ ...drag, end: getCoords(e) });
+            };
+
+            const onUp = () => {
+                if(!drag) return;
+                const w = Math.abs(drag.end.x - drag.start.x);
+                const h = Math.abs(drag.end.y - drag.start.y);
+                if(w > 10 && h > 10) {
+                    const rect = {
+                        x: Math.min(drag.start.x, drag.end.x),
+                        y: Math.min(drag.start.y, drag.end.y),
+                        w, h
+                    };
+                    setDrag(null);
+                    processSelection(rect);
+                } else {
+                    setDrag(null);
+                }
+            };
+
+            const apply = () => {
+                setHistory([...history, { rect: selection, text: replacementText, style: autoStyle }]);
+                setStatus('IDLE');
+                setSelection(null);
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    <div className="w-80 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-2xl z-10">
+                        <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent mb-1">
+                            Magic Editor Pro
+                        </h1>
+                        <p className="text-xs text-slate-500 mb-2">Production-Ready AI Text Replacement</p>
+
+                        {cvReady ? (
+                            <div className="text-[10px] text-green-400 mb-6 flex items-center gap-1">
+                                <span>✓</span> OpenCV Active - Full Enhancement
+                            </div>
+                        ) : (
+                            <div className="text-[10px] text-yellow-400 mb-6 flex items-center gap-1 animate-pulse">
+                                <span>⏳</span> OpenCV Loading... (lower quality until ready)
+                            </div>
+                        )}
+
+                        {!file ? (
+                            <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-xl hover:bg-slate-800/50 transition cursor-pointer relative">
+                                <input type="file" onChange={handleFile} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*,application/pdf" />
+                                <div className="text-4xl mb-3">📄</div>
+                                <span className="text-sm font-medium text-slate-400">Upload Image / PDF</span>
+                                <p className="text-xs text-slate-600 mt-2">JPG, PNG, or PDF</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                {status === 'IDLE' && (
+                                    <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-lg text-sm text-blue-200">
+                                        <div className="font-semibold mb-2">🎯 How to use:</div>
+                                        <ol className="text-xs space-y-1 ml-4 list-decimal">
+                                            <li>Draw a box around text (min 30×15px)</li>
+                                            <li>AI analyzes everything automatically</li>
+                                            <li>Edit detected text</li>
+                                            <li>Click "Apply Magic"</li>
+                                        </ol>
+                                        <div className="mt-3 pt-3 border-t border-blue-500/20 text-xs">
+                                            <strong>Tips:</strong>
+                                            <ul className="ml-4 mt-1 space-y-0.5">
+                                                <li>• Select clear, high-contrast text</li>
+                                                <li>• Avoid selections over 2000×2000px</li>
+                                                <li>• Wait for OpenCV to load for best quality</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {status === 'PROCESSING' && (
+                                    <div className="text-center py-10">
+                                        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                                        <div className="text-sm text-slate-400 animate-pulse-fast mb-2">{statusMsg}</div>
+                                        {ocrProgress > 0 && (
+                                            <div className="mt-4">
+                                                <div className="w-full bg-slate-700 rounded-full h-2 mb-1">
+                                                    <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: ocrProgress + '%'}}></div>
+                                                </div>
+                                                <div className="text-xs text-slate-500">{ocrProgress}%</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {status === 'EDITING' && (
+                                    <div className="space-y-4 animate-fade-in-up">
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Detected Text</label>
+                                            <div className="text-xs text-slate-400 italic mt-1 bg-slate-950 p-2 rounded border border-slate-800">
+                                                "{originalText}"
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-[10px] text-slate-500">Confidence:</span>
+                                                <span className={'text-xs font-bold ' + (confidence >= 80 ? 'text-green-400' : confidence >= 60 ? 'text-yellow-400' : 'text-red-400')}>
+                                                    {confidence.toFixed(1)}%
+                                                </span>
+                                                {confidence < 60 && <span className="text-[10px] text-red-400">⚠️ Verify accuracy</span>}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">New Text</label>
+                                            <textarea
+                                                value={replacementText}
+                                                onChange={e => setReplacementText(e.target.value)}
+                                                className="w-full h-32 bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none mt-2"
+                                                autoFocus
+                                            />
+                                        </div>
+
+                                        <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                                            <div className="text-xs font-bold text-slate-400 mb-2">Auto-Detected Style</div>
+                                            <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-300">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-slate-500">Font:</span>
+                                                    <span className="font-medium">{autoStyle.fontFamily}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-slate-500">Size:</span>
+                                                    <span className="font-medium">{autoStyle.fontSize}px</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-slate-500">Weight:</span>
+                                                    <span className="font-medium capitalize">{autoStyle.fontWeight}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-slate-500">Angle:</span>
+                                                    <span className="font-medium">{autoStyle.rotation.toFixed(1)}°</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 col-span-2">
+                                                    <span className="text-slate-500">Color:</span>
+                                                    <span className="w-3 h-3 rounded-full border border-slate-600" style={{background: autoStyle.color}}></span>
+                                                    <span className="font-medium">{autoStyle.color}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-2 pt-4">
+                                            <button
+                                                onClick={() => setStatus('IDLE')}
+                                                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 rounded text-sm transition">
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={apply}
+                                                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded text-sm transition shadow-lg shadow-blue-900/20">
+                                                ✨ Apply Magic
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="mt-auto pt-6 border-t border-slate-800 space-y-2">
+                                    {history.length > 0 && (
+                                        <div className="text-xs text-slate-500 mb-2">
+                                            ✓ {history.length} edit{history.length > 1 ? 's' : ''} applied
+                                        </div>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            const link=document.createElement('a');
+                                            link.download='magic-edited.png';
+                                            link.href=canvasRef.current.toDataURL();
+                                            link.click();
+                                        }}
+                                        className="w-full py-2 bg-green-600/10 hover:bg-green-600/20 text-green-400 border border-green-600/30 rounded text-sm transition">
+                                        💾 Download Result
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (history.length > 0) {
+                                                const confirm = window.confirm('Clear all edits and start over?');
+                                                if (!confirm) return;
+                                            }
+                                            setFile(null);
+                                            setHistory([]);
+                                            setStatus('IDLE');
+                                        }}
+                                        className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded text-sm transition">
+                                        Upload New File
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex-1 bg-slate-950 canvas-bg relative overflow-auto flex items-center justify-center p-8">
+                        <canvas
+                            ref={canvasRef}
+                            onMouseDown={onDown}
+                            onMouseMove={onMove}
+                            onMouseUp={onUp}
+                            className={`shadow-2xl ${status === 'IDLE' ? 'cursor-crosshair' : 'cursor-default'}`}
+                        />
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
