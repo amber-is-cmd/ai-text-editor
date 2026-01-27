@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V5 Auto-Detection Test Suite</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5"></script>
+    <script src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 2rem;
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 1rem;
+            font-size: 2rem;
+        }
+        .info {
+            background: #f0f4ff;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            border-left: 4px solid #667eea;
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: #48bb78;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+        }
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+        #progress {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #f7fafc;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            min-height: 60px;
+            display: none;
+        }
+        #progress.active {
+            display: block;
+        }
+        .test-results {
+            margin-top: 2rem;
+        }
+        .test-case {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            transition: all 0.3s;
+        }
+        .test-case.pass {
+            border-color: #48bb78;
+            background: #f0fff4;
+        }
+        .test-case.fail {
+            border-color: #f56565;
+            background: #fff5f5;
+        }
+        .test-case.running {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .test-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #2d3748;
+        }
+        .test-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status-pass {
+            background: #48bb78;
+            color: white;
+        }
+        .status-fail {
+            background: #f56565;
+            color: white;
+        }
+        .status-running {
+            background: #667eea;
+            color: white;
+        }
+        .test-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .test-image {
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f7fafc;
+            padding: 1rem;
+        }
+        .test-image canvas {
+            max-width: 100%;
+            border: 1px solid #cbd5e0;
+            background: white;
+        }
+        .test-details {
+            font-size: 0.9rem;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        .detail-value {
+            color: #2d3748;
+            font-family: 'Courier New', monospace;
+        }
+        .accuracy-bar {
+            width: 100%;
+            height: 30px;
+            background: #e2e8f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+        .accuracy-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #48bb78 0%, #38a169 100%);
+            transition: width 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            margin-top: 2rem;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .summary-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #667eea;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 V5 Auto-Detection Test Suite</h1>
+
+        <div class="info">
+            <strong>📊 Test Methodology:</strong> This suite generates images with known text, runs the auto-detection and OCR pipeline,
+            then verifies accuracy by comparing detected text with expected results. Tests include various fonts, sizes, rotations,
+            and backgrounds to ensure robust performance.
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="runAllTests()">▶️ Run All Tests</button>
+            <button class="btn-secondary" onclick="runSingleTest()">🎯 Run Single Test</button>
+            <button class="btn-danger" onclick="clearResults()">🗑️ Clear Results</button>
+        </div>
+
+        <div id="progress"></div>
+        <div id="loading" class="loading" style="display:none;">Loading OpenCV and Tesseract... Please wait.</div>
+        <div id="testResults" class="test-results"></div>
+        <div id="summary" style="display:none;"></div>
+    </div>
+
+    <script>
+        let cvReady = false;
+        let tesseractReady = false;
+        const testResults = [];
+
+        // Wait for OpenCV to load
+        function onOpenCvReady() {
+            cvReady = true;
+            console.log('✅ OpenCV loaded');
+            checkReady();
+        }
+
+        // Check if all libraries are ready
+        function checkReady() {
+            if (cvReady && tesseractReady) {
+                document.getElementById('loading').style.display = 'none';
+                console.log('✅ All libraries ready');
+            }
+        }
+
+        // Initialize Tesseract
+        (async () => {
+            try {
+                await Tesseract.createWorker();
+                tesseractReady = true;
+                console.log('✅ Tesseract loaded');
+                checkReady();
+            } catch (error) {
+                console.error('❌ Tesseract load error:', error);
+            }
+        })();
+
+        // Test cases definition
+        const TEST_CASES = [
+            {
+                id: 1,
+                name: 'Simple Black Text on White',
+                text: 'The quick brown fox',
+                font: '32px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 95
+            },
+            {
+                id: 2,
+                name: 'Large Bold Text',
+                text: 'HELLO WORLD',
+                font: 'bold 48px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 98
+            },
+            {
+                id: 3,
+                name: 'Small Text (Challenging)',
+                text: 'Small text is harder to read',
+                font: '16px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 75
+            },
+            {
+                id: 4,
+                name: 'Slightly Rotated Text (5°)',
+                text: 'Rotated text test',
+                font: '32px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 5,
+                expectedAccuracy: 85
+            },
+            {
+                id: 5,
+                name: 'Gray Background',
+                text: 'Text on gray background',
+                font: '32px Arial',
+                color: '#000000',
+                background: '#CCCCCC',
+                rotation: 0,
+                expectedAccuracy: 90
+            },
+            {
+                id: 6,
+                name: 'Serif Font',
+                text: 'Serif fonts are elegant',
+                font: '32px Georgia',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 90
+            },
+            {
+                id: 7,
+                name: 'Monospace Font',
+                text: 'CODE_BLOCK_EXAMPLE_123',
+                font: '28px "Courier New"',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 92
+            },
+            {
+                id: 8,
+                name: 'Multi-word Sentence',
+                text: 'This is a complete sentence with punctuation!',
+                font: '30px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 90
+            },
+            {
+                id: 9,
+                name: 'Numbers and Symbols',
+                text: 'Invoice #12345 - $99.99',
+                font: '32px Arial',
+                color: '#000000',
+                background: '#FFFFFF',
+                rotation: 0,
+                expectedAccuracy: 85
+            },
+            {
+                id: 10,
+                name: 'Low Contrast (Challenging)',
+                text: 'Hard to see text',
+                font: '32px Arial',
+                color: '#666666',
+                background: '#AAAAAA',
+                rotation: 0,
+                expectedAccuracy: 60
+            }
+        ];
+
+        // Generate test image
+        function generateTestImage(testCase) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 200;
+            const ctx = canvas.getContext('2d');
+
+            // Fill background
+            ctx.fillStyle = testCase.background;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply rotation if needed
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((testCase.rotation * Math.PI) / 180);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+            // Draw text
+            ctx.fillStyle = testCase.color;
+            ctx.font = testCase.font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(testCase.text, canvas.width / 2, canvas.height / 2);
+
+            ctx.restore();
+
+            return canvas;
+        }
+
+        // Auto-detect text regions (copied from v5)
+        function autoDetectTextRegions(canvas, cvReady) {
+            if (!cvReady) {
+                throw new Error('OpenCV not ready');
+            }
+
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            let src, gray, binary, morph, dilated, contours, hierarchy;
+
+            try {
+                src = cv.matFromImageData(imageData);
+                gray = new cv.Mat();
+                binary = new cv.Mat();
+                morph = new cv.Mat();
+                dilated = new cv.Mat();
+                contours = new cv.MatVector();
+                hierarchy = new cv.Mat();
+
+                // Convert to grayscale
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                // Adaptive thresholding
+                cv.adaptiveThreshold(
+                    gray, binary, 255,
+                    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    cv.THRESH_BINARY_INV, 15, 10
+                );
+
+                // Morphological operations
+                const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(20, 3));
+                cv.morphologyEx(binary, morph, cv.MORPH_CLOSE, kernel);
+                kernel.delete();
+
+                // Dilate to connect nearby components
+                const dilateKernel = cv.Mat.ones(3, 3, cv.CV_8U);
+                cv.dilate(morph, dilated, dilateKernel, new cv.Point(-1, -1), 2);
+                dilateKernel.delete();
+
+                // Find contours
+                cv.findContours(
+                    dilated, contours, hierarchy,
+                    cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
+                );
+
+                const regions = [];
+                const minArea = 500;
+                const minAspectRatio = 1.5;
+
+                for (let i = 0; i < contours.size(); i++) {
+                    const contour = contours.get(i);
+                    const rect = cv.boundingRect(contour);
+                    const area = rect.width * rect.height;
+                    const aspectRatio = rect.width / rect.height;
+
+                    if (area >= minArea && aspectRatio >= minAspectRatio &&
+                        rect.width >= 50 && rect.height >= 20) {
+                        regions.push({
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        });
+                    }
+                }
+
+                return regions;
+
+            } finally {
+                if (src) src.delete();
+                if (gray) gray.delete();
+                if (binary) binary.delete();
+                if (morph) morph.delete();
+                if (dilated) dilated.delete();
+                if (contours) contours.delete();
+                if (hierarchy) hierarchy.delete();
+            }
+        }
+
+        // Preprocess image for OCR (simplified from v5)
+        function preprocessImageForOCR(canvas, region) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = region.width;
+            tempCanvas.height = region.height;
+            const ctx = tempCanvas.getContext('2d');
+
+            ctx.drawImage(
+                canvas,
+                region.x, region.y, region.width, region.height,
+                0, 0, region.width, region.height
+            );
+
+            return tempCanvas;
+        }
+
+        // Perform OCR
+        async function performOCR(canvas) {
+            const worker = await Tesseract.createWorker('eng');
+            await worker.setParameters({
+                tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+                preserve_interword_spaces: '1',
+            });
+
+            const { data } = await worker.recognize(canvas);
+            await worker.terminate();
+
+            return {
+                text: data.text.trim(),
+                confidence: data.confidence || 0
+            };
+        }
+
+        // Calculate text similarity (Levenshtein distance)
+        function calculateSimilarity(str1, str2) {
+            str1 = str1.toLowerCase().replace(/[^a-z0-9]/g, '');
+            str2 = str2.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            if (str1 === str2) return 100;
+
+            const len1 = str1.length;
+            const len2 = str2.length;
+            const matrix = Array(len1 + 1).fill(null).map(() => Array(len2 + 1).fill(0));
+
+            for (let i = 0; i <= len1; i++) matrix[i][0] = i;
+            for (let j = 0; j <= len2; j++) matrix[0][j] = j;
+
+            for (let i = 1; i <= len1; i++) {
+                for (let j = 1; j <= len2; j++) {
+                    const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j - 1] + cost
+                    );
+                }
+            }
+
+            const distance = matrix[len1][len2];
+            const maxLen = Math.max(len1, len2);
+            const similarity = ((maxLen - distance) / maxLen) * 100;
+
+            return Math.round(similarity);
+        }
+
+        // Run a single test
+        async function runTest(testCase) {
+            const startTime = Date.now();
+
+            // Update UI
+            updateTestStatus(testCase.id, 'running');
+            updateProgress(`Running test ${testCase.id}: ${testCase.name}...`);
+
+            try {
+                // Generate test image
+                const canvas = generateTestImage(testCase);
+                displayTestImage(testCase.id, canvas);
+
+                // Auto-detect text regions
+                const regions = autoDetectTextRegions(canvas, cvReady);
+                updateProgress(`Detected ${regions.length} text region(s)`);
+
+                if (regions.length === 0) {
+                    return {
+                        ...testCase,
+                        success: false,
+                        detectedText: '',
+                        confidence: 0,
+                        accuracy: 0,
+                        duration: Date.now() - startTime,
+                        error: 'No text regions detected'
+                    };
+                }
+
+                // Use the first detected region
+                const region = regions[0];
+                const processedCanvas = preprocessImageForOCR(canvas, region);
+
+                // Perform OCR
+                const ocrResult = await performOCR(processedCanvas);
+                updateProgress(`OCR completed: "${ocrResult.text}" (${ocrResult.confidence.toFixed(1)}% confidence)`);
+
+                // Calculate accuracy
+                const accuracy = calculateSimilarity(testCase.text, ocrResult.text);
+                const success = accuracy >= testCase.expectedAccuracy;
+
+                const result = {
+                    ...testCase,
+                    success,
+                    detectedText: ocrResult.text,
+                    confidence: ocrResult.confidence,
+                    accuracy,
+                    duration: Date.now() - startTime,
+                    regionsDetected: regions.length
+                };
+
+                updateTestStatus(testCase.id, success ? 'pass' : 'fail');
+                displayTestResult(result);
+
+                return result;
+
+            } catch (error) {
+                console.error(`Test ${testCase.id} error:`, error);
+                updateTestStatus(testCase.id, 'fail');
+
+                return {
+                    ...testCase,
+                    success: false,
+                    detectedText: '',
+                    confidence: 0,
+                    accuracy: 0,
+                    duration: Date.now() - startTime,
+                    error: error.message
+                };
+            }
+        }
+
+        // Run all tests
+        async function runAllTests() {
+            if (!cvReady || !tesseractReady) {
+                alert('⚠️ Libraries still loading. Please wait...');
+                return;
+            }
+
+            clearResults();
+            document.getElementById('progress').classList.add('active');
+            testResults.length = 0;
+
+            // Create placeholder test cases
+            TEST_CASES.forEach(testCase => {
+                createTestPlaceholder(testCase);
+            });
+
+            // Run tests sequentially
+            for (const testCase of TEST_CASES) {
+                const result = await runTest(testCase);
+                testResults.push(result);
+            }
+
+            displaySummary();
+            updateProgress('✅ All tests completed!');
+        }
+
+        // Run a single random test
+        async function runSingleTest() {
+            if (!cvReady || !tesseractReady) {
+                alert('⚠️ Libraries still loading. Please wait...');
+                return;
+            }
+
+            const randomTest = TEST_CASES[Math.floor(Math.random() * TEST_CASES.length)];
+            clearResults();
+            document.getElementById('progress').classList.add('active');
+            testResults.length = 0;
+
+            createTestPlaceholder(randomTest);
+            const result = await runTest(randomTest);
+            testResults.push(result);
+
+            displaySummary();
+            updateProgress('✅ Test completed!');
+        }
+
+        // UI Functions
+        function createTestPlaceholder(testCase) {
+            const container = document.getElementById('testResults');
+            const div = document.createElement('div');
+            div.className = 'test-case';
+            div.id = `test-${testCase.id}`;
+            div.innerHTML = `
+                <div class="test-header">
+                    <div class="test-title">Test ${testCase.id}: ${testCase.name}</div>
+                    <div class="test-status status-running">⏳ Pending</div>
+                </div>
+                <div class="test-content">
+                    <div class="test-image">
+                        <h4>Test Image:</h4>
+                        <canvas id="canvas-${testCase.id}"></canvas>
+                    </div>
+                    <div class="test-details" id="details-${testCase.id}">
+                        <div class="detail-row">
+                            <span class="detail-label">Expected Text:</span>
+                            <span class="detail-value">"${testCase.text}"</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function displayTestImage(testId, canvas) {
+            const targetCanvas = document.getElementById(`canvas-${testId}`);
+            if (targetCanvas) {
+                targetCanvas.width = canvas.width;
+                targetCanvas.height = canvas.height;
+                const ctx = targetCanvas.getContext('2d');
+                ctx.drawImage(canvas, 0, 0);
+            }
+        }
+
+        function updateTestStatus(testId, status) {
+            const testCase = document.getElementById(`test-${testId}`);
+            if (!testCase) return;
+
+            const statusEl = testCase.querySelector('.test-status');
+
+            if (status === 'running') {
+                testCase.className = 'test-case running';
+                statusEl.className = 'test-status status-running';
+                statusEl.textContent = '⏳ Running...';
+            } else if (status === 'pass') {
+                testCase.className = 'test-case pass';
+                statusEl.className = 'test-status status-pass';
+                statusEl.textContent = '✅ PASS';
+            } else if (status === 'fail') {
+                testCase.className = 'test-case fail';
+                statusEl.className = 'test-status status-fail';
+                statusEl.textContent = '❌ FAIL';
+            }
+        }
+
+        function displayTestResult(result) {
+            const detailsEl = document.getElementById(`details-${result.id}`);
+            if (!detailsEl) return;
+
+            const color = result.accuracy >= 90 ? '#48bb78' :
+                         result.accuracy >= 70 ? '#ecc94b' : '#f56565';
+
+            detailsEl.innerHTML = `
+                <div class="detail-row">
+                    <span class="detail-label">Expected Text:</span>
+                    <span class="detail-value">"${result.text}"</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Detected Text:</span>
+                    <span class="detail-value">"${result.detectedText}"</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">OCR Confidence:</span>
+                    <span class="detail-value">${result.confidence.toFixed(1)}%</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Text Accuracy:</span>
+                    <span class="detail-value">${result.accuracy}%</span>
+                </div>
+                <div class="accuracy-bar">
+                    <div class="accuracy-fill" style="width: ${result.accuracy}%; background: ${color};">
+                        ${result.accuracy}%
+                    </div>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Expected Accuracy:</span>
+                    <span class="detail-value">≥${result.expectedAccuracy}%</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Regions Detected:</span>
+                    <span class="detail-value">${result.regionsDetected || 0}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Duration:</span>
+                    <span class="detail-value">${(result.duration / 1000).toFixed(2)}s</span>
+                </div>
+                ${result.error ? `
+                <div class="detail-row">
+                    <span class="detail-label">Error:</span>
+                    <span class="detail-value" style="color: #f56565;">${result.error}</span>
+                </div>
+                ` : ''}
+            `;
+        }
+
+        function displaySummary() {
+            const summaryDiv = document.getElementById('summary');
+            const passed = testResults.filter(r => r.success).length;
+            const failed = testResults.length - passed;
+            const avgAccuracy = testResults.reduce((sum, r) => sum + r.accuracy, 0) / testResults.length;
+            const avgConfidence = testResults.reduce((sum, r) => sum + r.confidence, 0) / testResults.length;
+            const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0) / 1000;
+
+            summaryDiv.style.display = 'block';
+            summaryDiv.innerHTML = `
+                <h2>📊 Test Summary</h2>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <div class="summary-value">${passed}/${testResults.length}</div>
+                        <div class="summary-label">Tests Passed</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">${failed}</div>
+                        <div class="summary-label">Tests Failed</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">${avgAccuracy.toFixed(1)}%</div>
+                        <div class="summary-label">Avg Accuracy</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">${avgConfidence.toFixed(1)}%</div>
+                        <div class="summary-label">Avg Confidence</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">${totalDuration.toFixed(1)}s</div>
+                        <div class="summary-label">Total Duration</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">${((passed/testResults.length) * 100).toFixed(0)}%</div>
+                        <div class="summary-label">Pass Rate</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateProgress(message) {
+            const progressDiv = document.getElementById('progress');
+            progressDiv.textContent = message;
+            console.log(message);
+        }
+
+        function clearResults() {
+            document.getElementById('testResults').innerHTML = '';
+            document.getElementById('summary').style.display = 'none';
+            document.getElementById('progress').textContent = '';
+            testResults.length = 0;
+        }
+
+        // Show loading message
+        document.getElementById('loading').style.display = 'block';
+    </script>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()"></script>
+</body>
+</html>
